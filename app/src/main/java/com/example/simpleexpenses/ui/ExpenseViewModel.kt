@@ -1,5 +1,6 @@
 package com.example.simpleexpenses.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -7,7 +8,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ExpenseViewModel(
     private val expenseDao: ExpenseDao
@@ -30,4 +38,30 @@ class ExpenseViewModel(
     fun delete(expense: Expense) = viewModelScope.launch {
         expenseDao.delete(expense)
     }
+
+    suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
+        // Fetch a one-shot snapshot from the DAO
+        val list = expenseDao.observeAll().first()
+
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date())
+        val file = File(context.cacheDir, "expenses-$stamp.csv")
+
+        file.bufferedWriter().use { w ->
+            w.appendLine("id,title,amount,timestamp")
+            list.forEach { e ->
+                w.append(e.id.toString()).append(',')
+                    .append(csvEscape(e.title)).append(',')
+                    .append(e.amount.toString()).append(',')
+                    .append(e.timestamp.toString())
+                    .appendLine()
+            }
+        }
+        file
+    }
+}
+
+private fun csvEscape(s: String): String {
+    val needsQuote = s.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+    val escaped = s.replace("\"", "\"\"")
+    return if (needsQuote) "\"$escaped\"" else escaped
 }
