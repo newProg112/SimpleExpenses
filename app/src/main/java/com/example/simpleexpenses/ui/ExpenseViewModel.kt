@@ -20,4 +20,14 @@ class ExpenseViewModel(
     fun add(expense: Expense) = viewModelScope.launch {
         expenseDao.insert(expense)
     }
+
+    suspend fun get(id: Long): Expense? = expenseDao.getById(id)
+
+    fun update(expense: Expense) = viewModelScope.launch {
+        expenseDao.update(expense)
+    }
+
+    fun delete(expense: Expense) = viewModelScope.launch {
+        expenseDao.delete(expense)
+    }
 }
