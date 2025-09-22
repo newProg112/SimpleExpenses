@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseDao
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class ExpenseViewModel(
@@ -16,6 +17,11 @@ class ExpenseViewModel(
     val expenses: StateFlow<List<Expense>> =
         expenseDao.observeAll() // or getAllFlow()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val total: StateFlow<Double> =
+        expenses
+            .map { list -> list.sumOf { it.amount } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     fun add(expense: Expense) = viewModelScope.launch {
         expenseDao.insert(expense)
