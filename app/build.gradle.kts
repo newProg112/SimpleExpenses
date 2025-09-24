@@ -69,11 +69,9 @@ dependencies {
     // Navigation (Compose)
     implementation(libs.navigation.compose)
 
-    // Lifecycle runtime for Compose (collectAsStateWithLifecycle, etc.)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-
     // Lifecycle / ViewModel
-    implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 }

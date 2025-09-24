@@ -23,4 +23,7 @@ interface ExpenseDao {
 
     @Delete
     suspend fun delete(expense: Expense)
+
+    @Query("SELECT * FROM expenses WHERE status = 'Paid'")
+    suspend fun getPaidExpenses(): List<Expense>
 }

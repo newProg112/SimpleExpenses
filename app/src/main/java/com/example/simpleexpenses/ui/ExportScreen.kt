@@ -32,7 +32,6 @@ fun ExportScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var exporting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -50,31 +49,24 @@ fun ExportScreen(
 
             Button(
                 onClick = {
-                    scope.launch {
-                        exporting = true
-                        error = null
-                        try {
-                            val file = viewModel.exportCsv(context)
-                            val authority = context.packageName + ".fileprovider"
-                            val uri = FileProvider.getUriForFile(
-                                context,
-                                authority,
-                                file
-                            )
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/csv"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                clipData = ClipData.newRawUri("Expenses CSV", uri)
-                            }
-                            context.startActivity(
-                                Intent.createChooser(share, "Share expenses CSV")
-                            )
-                        } catch (t: Throwable) {
-                            error = t.message ?: "Export failed"
-                        } finally {
-                            exporting = false
+                    exporting = true
+                    error = null
+                    // Use exportAll for now; later switch to exportPaid when statuses exist
+                    viewModel.exportAll(context) { uri ->
+                        exporting = false
+                        if (uri == null) {
+                            error = "Export failed"
+                            return@exportAll
                         }
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            clipData = ClipData.newRawUri("Expenses CSV", uri)
+                        }
+                        context.startActivity(
+                            Intent.createChooser(share, "Share expenses CSV")
+                        )
                     }
                 },
                 enabled = !exporting

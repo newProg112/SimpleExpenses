@@ -1,6 +1,7 @@
 package com.example.simpleexpenses.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseDao
+import com.example.simpleexpenses.data.ExportUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -39,6 +41,15 @@ class ExpenseViewModel(
         expenseDao.delete(expense)
     }
 
+    fun exportAll(context: Context, onResult: (Uri?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = expenseDao.observeAll().first()
+            val uri = ExportUtils.exportExpensesToCsv(context, all)
+            withContext(Dispatchers.Main) { onResult(uri) }
+        }
+    }
+
+    /*
     suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
         // Fetch a one-shot snapshot from the DAO
         val list = expenseDao.observeAll().first()
@@ -58,6 +69,7 @@ class ExpenseViewModel(
         }
         file
     }
+    */
 }
 
 private fun csvEscape(s: String): String {

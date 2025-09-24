@@ -9,23 +9,20 @@ import com.example.simpleexpenses.ui.ExpenseViewModel
 
 class LocalApp : Application() {
 
-    // Single DB instance
-    val db: AppDatabase by lazy {
-        Room.databaseBuilder(
-            this,
-            AppDatabase::class.java,
-            "expenses.db"
-        ).fallbackToDestructiveMigration().build()
-    }
+    lateinit var db: AppDatabase
+        private set
 
-    // Simple factory to pass DAO into your VM
-    val viewModelFactory = object : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            if (modelClass.isAssignableFrom(ExpenseViewModel::class.java)) {
-                return ExpenseViewModel(db.expenseDao()) as T
-            }
-            throw IllegalArgumentException("Unknown ViewModel class ${modelClass.name}")
-        }
+    override fun onCreate() {
+        super.onCreate()
+
+        db = Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java,
+            "simple-expenses.db"
+        )
+            // Use ONE of these:
+            //.addMigrations(MIGRATION_1_2)        // keep existing data (requires you defined MIGRATION_1_2)
+            .fallbackToDestructiveMigration()  // dev shortcut: wipes DB on schema change
+            .build()
     }
 }
