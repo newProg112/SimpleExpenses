@@ -16,46 +16,31 @@ import java.util.Locale
 
 object ExportUtils {
 
-    private fun csvEscape(value: String): String {
-        // If value contains comma, quote, or newline -> wrap in quotes and escape quotes
-        val needsQuoting = value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r')
-        if (!needsQuoting) return value
-        val doubled = value.replace("\"", "\"\"")
-        return "\"$doubled\""
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.UK)
+
+    /** Writes the provided items to a CSV and returns the File. */
+    fun exportExpensesToCsv(context: Context, items: List<Expense>): File {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date())
+        val file = File(context.cacheDir, "expenses-$stamp.csv")
+
+        file.bufferedWriter().use { w ->
+            w.appendLine("Date,Title,Amount,Status")
+            items.forEach { e ->
+                val dateStr = dateFormat.format(Date(e.timestamp))
+                val amountStr = String.format(Locale.UK, "%.2f", e.amount)
+                w.append(csvEscape(dateStr)).append(',')
+                    .append(csvEscape(e.title)).append(',')
+                    .append(csvEscape(amountStr)).append(',')
+                    .append(csvEscape(e.status.name))
+                    .appendLine()
+            }
+        }
+        return file
     }
 
-    fun exportExpensesToCsv(context: Context, expenses: List<Expense>): Uri? {
-        return try {
-            val csvFile = File(context.cacheDir, "expenses.csv")
-            FileOutputStream(csvFile).use { fos ->
-                // If Excel compatibility is needed, uncomment BOM:
-                // fos.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())) // UTF-8 BOM
-
-                OutputStreamWriter(fos, Charsets.UTF_8).use { writer ->
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    val amountFormat = DecimalFormat("0.00")
-
-                    // Header
-                    writer.append("Date,Title,Amount\n")
-
-                    for (e in expenses) {
-                        val date = csvEscape(dateFormat.format(Date(e.timestamp)))
-                        val title = csvEscape(e.title)
-                        val amount = amountFormat.format(e.amount) // numeric: no need to quote
-                        writer.append("$date,$title,$amount\n")
-                    }
-                    writer.flush()
-                }
-            }
-
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                csvFile
-            )
-        } catch (t: Throwable) {
-            t.printStackTrace()
-            null
-        }
+    private fun csvEscape(s: String): String {
+        val needsQuote = s.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        val escaped = s.replace("\"", "\"\"")
+        return if (needsQuote) "\"$escaped\"" else escaped
     }
 }

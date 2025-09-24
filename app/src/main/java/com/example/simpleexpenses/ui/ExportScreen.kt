@@ -51,13 +51,14 @@ fun ExportScreen(
                 onClick = {
                     exporting = true
                     error = null
-                    // Use exportAll for now; later switch to exportPaid when statuses exist
-                    viewModel.exportAll(context) { uri ->
+                    viewModel.exportPaidCsv(context) { file ->
                         exporting = false
-                        if (uri == null) {
+                        if (file == null) {
                             error = "Export failed"
-                            return@exportAll
+                            return@exportPaidCsv
                         }
+                        val authority = context.packageName + ".fileprovider"
+                        val uri = FileProvider.getUriForFile(context, authority, file)
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/csv"
                             putExtra(Intent.EXTRA_STREAM, uri)
@@ -71,8 +72,9 @@ fun ExportScreen(
                 },
                 enabled = !exporting
             ) {
-                Text(if (exporting) "Exporting…" else "Generate & Share CSV")
+                Text(if (exporting) "Exporting…" else "Export Paid-only CSV")
             }
+
 
             if (error != null) {
                 Spacer(Modifier.height(8.dp))

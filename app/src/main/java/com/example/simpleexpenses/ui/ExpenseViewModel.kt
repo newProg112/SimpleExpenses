@@ -41,6 +41,7 @@ class ExpenseViewModel(
         expenseDao.delete(expense)
     }
 
+    /*
     fun exportAll(context: Context, onResult: (Uri?) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val all = expenseDao.observeAll().first()
@@ -48,6 +49,21 @@ class ExpenseViewModel(
             withContext(Dispatchers.Main) { onResult(uri) }
         }
     }
+
+     */
+
+    fun exportPaidCsv(context: Context, onResult: (File?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val paid = expenseDao.getPaidExpenses()   // uses WHERE status = 'Paid'
+                val file = ExportUtils.exportExpensesToCsv(context, paid)
+                withContext(Dispatchers.Main) { onResult(file) }
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main) { onResult(null) }
+            }
+        }
+    }
+
 
     /*
     suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
