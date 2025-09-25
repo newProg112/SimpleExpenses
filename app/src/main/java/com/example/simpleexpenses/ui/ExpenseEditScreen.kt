@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -24,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.simpleexpenses.data.Expense
+import com.example.simpleexpenses.data.ExpenseStatus
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,9 +36,9 @@ fun ExpenseEditScreen(
     expenseId: Long? = null,
     onDone: () -> Unit
 ) {
-    // Simple create-only form for now
     var title by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf(ExpenseStatus.Submitted) }
     val scope = rememberCoroutineScope()
 
     // Prefill if editing
@@ -44,6 +47,7 @@ fun ExpenseEditScreen(
             viewModel.get(expenseId)?.let { e ->
                 title = e.title
                 amountText = e.amount.toString()
+                status = e.status
             }
         }
     }
@@ -64,6 +68,10 @@ fun ExpenseEditScreen(
                 label = { Text("Amount") }, modifier = Modifier.fillMaxWidth(),
                 supportingText = { Text("Enter a number, e.g. 4.50") }
             )
+            Spacer(Modifier.height(12.dp))
+
+            // ← NEW: show the status picker
+            StatusPicker(value = status, onValueChange = { status = it })
             Spacer(Modifier.height(20.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -72,12 +80,14 @@ fun ExpenseEditScreen(
                         scope.launch {
                             val amt = amountText.toDoubleOrNull() ?: return@launch
                             if (expenseId == null) {
-                                // create
-                                viewModel.add(Expense(title = title, amount = amt))
+                                // create with status
+                                viewModel.add(
+                                    Expense(title = title, amount = amt, status = status)
+                                )
                             } else {
-                                // update (preserve id)
+                                // update (preserve id) with status
                                 viewModel.update(
-                                    Expense(id = expenseId, title = title, amount = amt)
+                                    Expense(id = expenseId, title = title, amount = amt, status = status)
                                 )
                             }
                             onDone()
@@ -90,16 +100,48 @@ fun ExpenseEditScreen(
                     OutlinedButton(
                         onClick = {
                             scope.launch {
-                                // minimal delete: require current values; alternatively fetch once more
                                 val amt = amountText.toDoubleOrNull() ?: 0.0
                                 viewModel.delete(
-                                    Expense(id = expenseId, title = title.ifBlank { "-" }, amount = amt)
+                                    Expense(id = expenseId, title = title.ifBlank { "-" }, amount = amt, status = status)
                                 )
                                 onDone()
                             }
                         }
                     ) { Text("Delete") }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StatusPicker(
+    value: ExpenseStatus,
+    onValueChange: (ExpenseStatus) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val options = ExpenseStatus.values()
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value.name,
+            onValueChange = {},
+            label = { Text("Status") },
+            readOnly = true,
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { st ->
+                DropdownMenuItem(
+                    text = { Text(st.name) },
+                    onClick = {
+                        onValueChange(st)
+                        expanded = false
+                    }
+                )
             }
         }
     }

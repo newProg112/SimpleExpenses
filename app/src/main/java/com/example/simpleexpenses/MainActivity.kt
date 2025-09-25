@@ -15,6 +15,7 @@ import com.example.simpleexpenses.ui.LocalApp
 import com.example.simpleexpenses.ui.ExpenseViewModel
 import com.example.simpleexpenses.ui.ExpenseEditScreen
 import com.example.simpleexpenses.ui.ExpenseListScreen
+import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
 
 class MainActivity : ComponentActivity() {
@@ -26,7 +27,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
                 val nav = rememberNavController()
-                val vm: ExpenseViewModel = viewModel(factory = app.viewModelFactory)
+                val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
 
                 NavHost(navController = nav, startDestination = "list") {
                     composable("list") {
