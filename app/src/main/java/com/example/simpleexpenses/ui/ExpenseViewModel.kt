@@ -64,6 +64,8 @@ class ExpenseViewModel(
         }
     }
 
+    suspend fun suggestMerchants(prefix: String): List<String> =
+        expenseDao.suggestMerchants(prefix)
 
     /*
     suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
