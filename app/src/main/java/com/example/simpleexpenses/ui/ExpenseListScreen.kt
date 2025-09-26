@@ -1,11 +1,14 @@
 package com.example.simpleexpenses.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,10 +17,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Divider
@@ -68,7 +73,9 @@ import kotlinx.coroutines.launch
 
 private enum class SortOption { RECENT, OLDEST, AMOUNT_ASC, AMOUNT_DESC }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
+    ExperimentalLayoutApi::class
+)
 @Composable
 fun ExpenseListScreen(
     viewModel: ExpenseViewModel,
@@ -100,21 +107,41 @@ fun ExpenseListScreen(
 
     var sort by rememberSaveable { mutableStateOf(SortOption.RECENT) }
 
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var reimbursableOnly by rememberSaveable { mutableStateOf(false) }
+    var paymentFilter by rememberSaveable { mutableStateOf<String?>(null) } // "Personal" or "CompanyCard"
+
+    var catMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var showMoreFilters by rememberSaveable { mutableStateOf(false) }
+    val categoryOptions = listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
+
     // Apply filter
     val displayedExpenses = expenses
-        // status filter
+        // status
         .let { list -> if (selectedStatus == null) list else list.filter { it.status == selectedStatus } }
-        // search filter
-        .let { list -> if (query.isBlank()) list else list.filter { it.title.contains(query, ignoreCase = true) } }
+        // category
+        .let { list -> if (selectedCategory == null) list else list.filter { it.category == selectedCategory } }
+        // reimbursable
+        .let { list -> if (!reimbursableOnly) list else list.filter { it.reimbursable } }
+        // payment method
+        .let { list -> if (paymentFilter == null) list else list.filter { it.paymentMethod == paymentFilter } }
+        // search (title or merchant)
+        .let { list ->
+            if (query.isBlank()) list else list.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                        (it.merchant?.contains(query, ignoreCase = true) == true)
+            }
+        }
         // sort
         .let { list ->
             when (sort) {
-                SortOption.RECENT      -> list.sortedByDescending { it.timestamp } // newest first
+                SortOption.RECENT      -> list.sortedByDescending { it.timestamp }
                 SortOption.OLDEST      -> list.sortedBy { it.timestamp }
                 SortOption.AMOUNT_ASC  -> list.sortedBy { it.amount }
                 SortOption.AMOUNT_DESC -> list.sortedByDescending { it.amount }
             }
         }
+
 
     val visibleCount = displayedExpenses.size
     val visibleTotal = displayedExpenses.sumOf { it.amount }
@@ -242,6 +269,96 @@ fun ExpenseListScreen(
                                     label = { Text("Amount ↓") }
                                 )
                             }
+
+                            // Compact filter row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Category = single chip that opens a dropdown
+                                FilterChip(
+                                    selected = selectedCategory != null,
+                                    onClick = { catMenuExpanded = true },
+                                    label = { Text(selectedCategory ?: "Category") },
+                                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) }
+                                )
+                                DropdownMenu(
+                                    expanded = catMenuExpanded,
+                                    onDismissRequest = { catMenuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("All categories") },
+                                        onClick = {
+                                            selectedCategory = null
+                                            catMenuExpanded = false
+                                        }
+                                    )
+                                    categoryOptions.forEach { c ->
+                                        DropdownMenuItem(
+                                            text = { Text(c) },
+                                            onClick = {
+                                                selectedCategory = c
+                                                catMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+
+                                val activeFilters = listOfNotNull(
+                                    selectedCategory?.let { "cat" },
+                                    if (reimbursableOnly) "reimb" else null,
+                                    paymentFilter // "Personal" / "CompanyCard" or null
+                                ).size
+
+
+                                AssistChip(
+                                    onClick = { showMoreFilters = !showMoreFilters },
+                                    label = { Text(if (activeFilters > 0) "Filters ($activeFilters)" else "Filters") },
+                                    leadingIcon = { Icon(Icons.Filled.Tune, contentDescription = null) }
+                                )
+
+                                if (activeFilters > 0) {
+                                    AssistChip(
+                                        onClick = {
+                                            selectedCategory = null
+                                            reimbursableOnly = false
+                                            paymentFilter = null
+                                        },
+                                        label = { Text("Clear") }
+                                    )
+                                }
+
+                            }
+
+                            // Extra filters collapse down when not needed
+                            AnimatedVisibility(visible = showMoreFilters) {
+                                FlowRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = reimbursableOnly,
+                                        onClick = { reimbursableOnly = !reimbursableOnly },
+                                        label = { Text("Reimbursable only") }
+                                    )
+                                    FilterChip(
+                                        selected = paymentFilter == "Personal",
+                                        onClick = { paymentFilter = if (paymentFilter == "Personal") null else "Personal" },
+                                        label = { Text("Personal") }
+                                    )
+                                    FilterChip(
+                                        selected = paymentFilter == "CompanyCard",
+                                        onClick = { paymentFilter = if (paymentFilter == "CompanyCard") null else "CompanyCard" },
+                                        label = { Text("Company card") }
+                                    )
+                                }
+                            }
+
                         }
                     }
                 }
@@ -366,6 +483,15 @@ fun ExpenseListScreen(
                         }
                     ) {
                         ListItem(
+                            overlineContent = {
+                                val parts = buildList {
+                                    if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
+                                    add(e.category)
+                                    if (!e.reimbursable) add("Not reimbursable")
+                                    add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
+                                }
+                                Text(parts.joinToString(" • "))
+                            },
                             headlineContent = { Text(e.title) },
                             supportingContent = { Text("£${"%.2f".format(e.amount)}") },
                             trailingContent = {

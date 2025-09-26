@@ -26,4 +26,17 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses WHERE status = 'Paid'")
     suspend fun getPaidExpenses(): List<Expense>
+
+    @Query("""
+        SELECT DISTINCT merchant
+        FROM expenses
+        WHERE merchant IS NOT NULL AND merchant != '' AND merchant LIKE :prefix || '%'
+        ORDER BY merchant
+        LIMIT 10
+    """)
+    suspend fun suggestMerchants(prefix: String): List<String>
+
+    // Optional (for dynamic category lists later)
+    @Query("SELECT DISTINCT category FROM expenses ORDER BY category")
+    suspend fun allCategories(): List<String>
 }
