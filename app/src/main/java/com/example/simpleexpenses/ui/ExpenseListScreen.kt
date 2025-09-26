@@ -53,6 +53,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -425,6 +426,8 @@ fun ExpenseListScreen(
 
                     // Show confirm for Paid only
                     var showConfirm by remember { mutableStateOf(false) }
+                    // Defer deletion so we don't mutate state inside confirm callback
+                    var pendingDelete by remember { mutableStateOf(false) }
 
                     // One place to perform delete + snackbar + undo + haptics
                     val onDelete: () -> Unit = {
@@ -445,23 +448,32 @@ fun ExpenseListScreen(
                     }
 
                     val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart ||
-                                value == SwipeToDismissBoxValue.StartToEnd
-                            ) {
-                                if (e.status == ExpenseStatus.Paid) {
-                                    // Guard: confirm before deleting Paid items
-                                    showConfirm = true
-                                    false // cancel swipe completion; we’ll handle via the dialog
-                                } else {
-                                    onDelete()
-                                    true
+                        confirmValueChange = { target ->
+                            when (target) {
+                                SwipeToDismissBoxValue.EndToStart,
+                                SwipeToDismissBoxValue.StartToEnd -> {
+                                    if (e.status == ExpenseStatus.Paid) {
+                                        // Guard: confirm before deleting Paid items
+                                        showConfirm = true
+                                        false // don't allow the dismiss to complete
+                                    } else {
+                                        // Defer deletion to a LaunchedEffect
+                                        pendingDelete = true
+                                        true  // allow the dismiss animation
+                                    }
                                 }
-                            } else {
-                                false
+                                else -> false
                             }
                         }
                     )
+
+                    // Perform the delete AFTER confirmValueChange, safely
+                    LaunchedEffect(pendingDelete) {
+                        if (pendingDelete) {
+                            pendingDelete = false
+                            onDelete()
+                        }
+                    }
 
                     // The swipe container (same background/content as before)
                     SwipeToDismissBox(
