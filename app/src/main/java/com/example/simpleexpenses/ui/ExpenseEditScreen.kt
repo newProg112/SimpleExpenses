@@ -65,6 +65,8 @@ fun ExpenseEditScreen(
 
     var category by rememberSaveable { mutableStateOf("General") }
     var merchant by rememberSaveable { mutableStateOf("") }
+    var merchantExpanded by remember { mutableStateOf(false) }
+    var merchantSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var reimbursable by rememberSaveable { mutableStateOf(true) }
     var paymentMethod by rememberSaveable { mutableStateOf("Personal") }
@@ -117,6 +119,13 @@ fun ExpenseEditScreen(
                 paymentMethod = e.paymentMethod
             }
         }
+    }
+
+    // Load suggestions as user types
+    LaunchedEffect(merchant) {
+        merchantSuggestions =
+            if (merchant.length >= 1) viewModel.suggestMerchants(merchant) else emptyList()
+        merchantExpanded = merchantSuggestions.isNotEmpty()
     }
 
     Scaffold(
@@ -207,14 +216,37 @@ fun ExpenseEditScreen(
             StatusPicker(value = status, onValueChange = { status = it })
             Spacer(Modifier.height(16.dp))
 
-            // Merchant
-            OutlinedTextField(
-                value = merchant,
-                onValueChange = { merchant = it },
-                label = { Text("Merchant") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            ExposedDropdownMenuBox(
+                expanded = merchantExpanded,
+                onExpandedChange = { merchantExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = merchant,
+                    onValueChange = {
+                        merchant = it
+                        merchantExpanded = true
+                    },
+                    label = { Text("Merchant") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = merchantExpanded,
+                    onDismissRequest = { merchantExpanded = false }
+                ) {
+                    merchantSuggestions.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s) },
+                            onClick = {
+                                merchant = s
+                                merchantExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
 
             // Category
