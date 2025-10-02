@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -74,6 +77,75 @@ import kotlinx.coroutines.launch
 
 private enum class SortOption { RECENT, OLDEST, AMOUNT_ASC, AMOUNT_DESC }
 
+@Composable
+fun FilterBar(
+    filters: ExpenseFilters,
+    onCategoryChange: (String?) -> Unit,
+    onStatusChange: (ExpenseStatus?) -> Unit,
+    onHasReceiptChange: (Boolean?) -> Unit,
+    onClear: () -> Unit
+) {
+    var categoryText by remember(filters.category) { mutableStateOf(filters.category.orEmpty()) }
+    var statusExpanded by remember { mutableStateOf(false) }
+    var receiptExpanded by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = categoryText,
+                onValueChange = {
+                    categoryText = it
+                    onCategoryChange(it.ifBlank { null })
+                },
+                label = { Text("Category") },
+                modifier = Modifier.weight(1f)
+            )
+
+            // Status dropdown
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { statusExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(filters.status?.name ?: "Status: Any")
+                }
+                DropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Any") }, onClick = {
+                        onStatusChange(null); statusExpanded = false
+                    })
+                    ExpenseStatus.values().forEach { s ->
+                        DropdownMenuItem(text = { Text(s.name) }, onClick = {
+                            onStatusChange(s); statusExpanded = false
+                        })
+                    }
+                }
+            }
+
+            // Receipt dropdown
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { receiptExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        when (filters.hasReceipt) {
+                            null -> "Receipt: Any"
+                            true -> "Receipt: With"
+                            false -> "Receipt: Without"
+                        }
+                    )
+                }
+                DropdownMenu(expanded = receiptExpanded, onDismissRequest = { receiptExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Any") }, onClick = { onHasReceiptChange(null); receiptExpanded = false })
+                    DropdownMenuItem(text = { Text("With") }, onClick = { onHasReceiptChange(true); receiptExpanded = false })
+                    DropdownMenuItem(text = { Text("Without") }, onClick = { onHasReceiptChange(false); receiptExpanded = false })
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onClear) { Text("Clear filters") }
+            // (Optional) Add date range later
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalLayoutApi::class
 )
@@ -85,6 +157,7 @@ fun ExpenseListScreen(
     onExport: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsState(initial = emptyList())
+    val filters by viewModel.filters.collectAsState()
 
     // Totals (enum comparisons)
     val submittedTotal = expenses.filter { it.status == ExpenseStatus.Submitted }.sumOf { it.amount }
@@ -118,10 +191,6 @@ fun ExpenseListScreen(
 
     // Apply filter
     val displayedExpenses = expenses
-        // status
-        .let { list -> if (selectedStatus == null) list else list.filter { it.status == selectedStatus } }
-        // category
-        .let { list -> if (selectedCategory == null) list else list.filter { it.category == selectedCategory } }
         // reimbursable
         .let { list -> if (!reimbursableOnly) list else list.filter { it.reimbursable } }
         // payment method
@@ -213,6 +282,14 @@ fun ExpenseListScreen(
                 )
             }
         ) {
+            FilterBar(
+                filters = filters,
+                onCategoryChange = viewModel::setCategory,
+                onStatusChange = viewModel::setStatus,
+                onHasReceiptChange = viewModel::setHasReceipt,
+                onClear = viewModel::clearFilters
+            )
+
             LazyColumn(Modifier.fillMaxSize()) {
                 // Summary at the top
                 stickyHeader {
