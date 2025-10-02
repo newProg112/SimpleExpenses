@@ -3,20 +3,20 @@ package com.example.simpleexpenses.data
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ExpenseDao {
-    @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
-    fun observeAll(): Flow<List<Expense>>
 
-    @Insert
-    suspend fun insert(expense: Expense)
+    // ----- Inserts / updates -----
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(expense: Expense): Long
 
-    @Query("SELECT * FROM expenses WHERE id = :id")
-    suspend fun getById(id: Long): Expense?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(expense: Expense): Long
 
     @Update
     suspend fun update(expense: Expense)
@@ -24,19 +24,50 @@ interface ExpenseDao {
     @Delete
     suspend fun delete(expense: Expense)
 
-    @Query("SELECT * FROM expenses WHERE status = 'Paid'")
+    @Query("DELETE FROM expenses WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    // ----- Reads -----
+    @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
+    fun all(): Flow<List<Expense>>
+
+    @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
+    fun observeAll(): Flow<List<Expense>>
+
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    fun observeById(id: Long): Flow<Expense?>
+
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): Expense?
+
+    // ✅ New: get all Paid expenses (one-shot list)
+    @Query("SELECT * FROM expenses WHERE status = 'Paid' ORDER BY timestamp DESC")
     suspend fun getPaidExpenses(): List<Expense>
 
+    // ✅ New: merchant suggestions (prefix match, distinct)
     @Query("""
-        SELECT DISTINCT merchant
-        FROM expenses
-        WHERE merchant IS NOT NULL AND merchant != '' AND merchant LIKE :prefix || '%'
-        ORDER BY merchant
-        LIMIT 10
+        SELECT DISTINCT merchant 
+        FROM expenses 
+        WHERE merchant LIKE :prefix || '%' 
+        ORDER BY merchant ASC
     """)
     suspend fun suggestMerchants(prefix: String): List<String>
 
-    // Optional (for dynamic category lists later)
-    @Query("SELECT DISTINCT category FROM expenses ORDER BY category")
-    suspend fun allCategories(): List<String>
+    // ----- Flexible filters -----
+    @Query("""
+        SELECT * FROM expenses
+        WHERE (:category IS NULL OR category = :category)
+          AND (:status IS NULL OR status = :status)
+          AND (:fromDate IS NULL OR timestamp >= :fromDate)
+          AND (:toDate IS NULL OR timestamp <= :toDate)
+          AND (:hasReceipt IS NULL OR hasReceipt = :hasReceipt)
+        ORDER BY timestamp DESC
+    """)
+    fun filtered(
+        category: String?,
+        status: ExpenseStatus?,
+        fromDate: Long?,
+        toDate: Long?,
+        hasReceipt: Boolean?
+    ): Flow<List<Expense>>
 }
