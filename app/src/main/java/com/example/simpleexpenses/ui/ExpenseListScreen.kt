@@ -95,7 +95,7 @@ fun FilterBar(
                 value = categoryText,
                 onValueChange = {
                     categoryText = it
-                    onCategoryChange(it.ifBlank { null })
+                    onCategoryChange(it.trim().ifBlank { null })
                 },
                 label = { Text("Category") },
                 modifier = Modifier.weight(1f)
@@ -168,20 +168,13 @@ fun ExpenseListScreen(
     val approvedCount  = expenses.count { it.status == ExpenseStatus.Approved  }
     val paidCount      = expenses.count { it.status == ExpenseStatus.Paid      }
 
-
-    // Selected filter name (persisted across rotation/process recreation)
-    var selectedStatusName by rememberSaveable { mutableStateOf<String?>(null) }
-
     var query by rememberSaveable { mutableStateOf("") }
 
-    // Map to enum (safe)
-    val selectedStatus = selectedStatusName?.let { name ->
-        runCatching { ExpenseStatus.valueOf(name) }.getOrNull()
-    }
+    val selectedStatus = filters.status
+    val selectedCategory = filters.category
 
     var sort by rememberSaveable { mutableStateOf(SortOption.RECENT) }
 
-    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var reimbursableOnly by rememberSaveable { mutableStateOf(false) }
     var paymentFilter by rememberSaveable { mutableStateOf<String?>(null) } // "Personal" or "CompanyCard"
 
@@ -369,7 +362,7 @@ fun ExpenseListScreen(
                                     DropdownMenuItem(
                                         text = { Text("All categories") },
                                         onClick = {
-                                            selectedCategory = null
+                                            viewModel.setCategory(null)
                                             catMenuExpanded = false
                                         }
                                     )
@@ -377,7 +370,7 @@ fun ExpenseListScreen(
                                         DropdownMenuItem(
                                             text = { Text(c) },
                                             onClick = {
-                                                selectedCategory = c
+                                                viewModel.setCategory(c)
                                                 catMenuExpanded = false
                                             }
                                         )
@@ -400,7 +393,7 @@ fun ExpenseListScreen(
                                 if (activeFilters > 0) {
                                     AssistChip(
                                         onClick = {
-                                            selectedCategory = null
+                                            viewModel.setCategory(null)
                                             reimbursableOnly = false
                                             paymentFilter = null
                                         },
@@ -412,6 +405,8 @@ fun ExpenseListScreen(
 
                             // Extra filters collapse down when not needed
                             AnimatedVisibility(visible = showMoreFilters) {
+                                val categories = listOf("General","Travel","Meals","Supplies","Software","Training","Other")
+
                                 FlowRow(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -451,7 +446,7 @@ fun ExpenseListScreen(
                         paidCount = paidCount,
                         selected = selectedStatus,
                         onCardClick = { status ->
-                            selectedStatusName = if (selectedStatus == status) null else status.name
+                            if (selectedStatus == status) viewModel.setStatus(null) else viewModel.setStatus(status)
                         }
                     )
                 }
@@ -482,7 +477,7 @@ fun ExpenseListScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             AssistChip(
-                                onClick = { selectedStatusName = null },
+                                onClick = { viewModel.setStatus(null) },
                                 label = { Text("Clear filter") },
                                 leadingIcon = {
                                     Icon(
