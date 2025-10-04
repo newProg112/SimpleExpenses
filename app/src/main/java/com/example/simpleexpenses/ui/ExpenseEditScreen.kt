@@ -2,6 +2,9 @@ package com.example.simpleexpenses.ui
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -10,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -48,8 +52,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -58,7 +64,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -426,7 +434,7 @@ fun ReceiptSection(
         }) { Text("Take photo") }
 
         // Pick file (document picker)
-        Button(onClick = { picker.launch(arrayOf("image/*")) }) {
+        Button(onClick = { picker.launch(arrayOf("image/*", "application/pdf")) }) {
             Text(if (localUri.isNullOrEmpty()) "Pick file" else "Replace")
         }
 
@@ -438,22 +446,48 @@ fun ReceiptSection(
         }
     }
 
-    if (!localUri.isNullOrEmpty()) {
+    // Snapshot the value so Kotlin can smart-cast it safely
+    val uriString = localUri
+
+    if (!uriString.isNullOrEmpty()) {
         Spacer(Modifier.height(12.dp))
+
+        // Detect PDF by MIME (fallback to .pdf extension)
+        val mime = remember(uriString) {
+            uriString?.let { context.contentResolver.getType(Uri.parse(it)) }
+        }
+        val isPdf = (mime == "application/pdf") ||
+                uriString.endsWith(".pdf", ignoreCase = true)
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp)
-                .clickable { showPreview = true }
+                .clickable {
+                    if (isPdf) {
+                        val i = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(Uri.parse(uriString), "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching { context.startActivity(i) }
+                    } else {
+                        showPreview = true
+                    }
+                }
         ) {
-            Image(
-                painter = rememberAsyncImagePainter(model = Uri.parse(localUri)),
-                contentDescription = "Receipt",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (isPdf) {
+                PdfFirstPageThumb(uri = Uri.parse(uriString))
+            } else {
+                Image(
+                    painter = rememberAsyncImagePainter(model = Uri.parse(uriString)),
+                    contentDescription = "Receipt",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
+
 
     if (showPreview && !localUri.isNullOrEmpty()) {
         AlertDialog(
@@ -473,6 +507,45 @@ fun ReceiptSection(
     }
 }
 
+@Composable
+private fun PdfFirstPageThumb(uri: Uri) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(uri) {
+        bitmap = withContext(Dispatchers.IO) {
+            try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    PdfRenderer(pfd).use { renderer ->
+                        if (renderer.pageCount > 0) {
+                            renderer.openPage(0).use { page ->
+                                val scale = 2
+                                val width = page.width * scale
+                                val height = page.height * scale
+                                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bmp ->
+                                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                }
+                            }
+                        } else null
+                    }
+                }
+            } catch (_: Exception) { null }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = "PDF thumbnail",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+    } else {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("PDF", style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
 
 private fun createImageUri(context: Context): Uri? {
     val name = "receipt_${System.currentTimeMillis()}.jpg"
