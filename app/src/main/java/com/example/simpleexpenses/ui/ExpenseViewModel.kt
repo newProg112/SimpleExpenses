@@ -127,6 +127,17 @@ class ExpenseViewModel(
     fun updateReceiptUri(uri: String) {
         _receiptUri.value = uri
     }
+
+    suspend fun exportSnapshot(): List<Expense> {
+        val f = filters.value
+        return expenseDao.getFilteredOnce(
+            category  = f.category,
+            status    = f.status,
+            fromDate  = f.fromDate,
+            toDate    = f.toDate,
+            hasReceipt= f.hasReceipt
+        )
+    }
 }
 
 private fun csvEscape(s: String): String {

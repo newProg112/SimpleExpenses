@@ -72,6 +72,23 @@ interface ExpenseDao {
         hasReceipt: Boolean?
     ): Flow<List<Expense>>
 
+    @Query("""
+    SELECT * FROM expenses
+    WHERE (:category IS NULL OR category = :category)
+      AND (:status IS NULL OR status = :status)
+      AND (:fromDate IS NULL OR timestamp >= :fromDate)
+      AND (:toDate IS NULL OR timestamp <= :toDate)
+      AND (:hasReceipt IS NULL OR hasReceipt = :hasReceipt)
+    ORDER BY timestamp DESC
+""")
+    suspend fun getFilteredOnce(
+        category: String?,
+        status: ExpenseStatus?,
+        fromDate: Long?,
+        toDate: Long?,
+        hasReceipt: Boolean?
+    ): List<Expense>
+
     @Query("UPDATE expenses SET receiptUri = :uri, hasReceipt = 1 WHERE id = :id")
     suspend fun updateReceiptUri(id: Long, uri: String?)
 
