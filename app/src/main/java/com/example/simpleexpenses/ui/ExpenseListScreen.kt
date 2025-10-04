@@ -1,5 +1,6 @@
 package com.example.simpleexpenses.ui
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -15,13 +16,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -68,6 +74,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.example.simpleexpenses.data.Expense
@@ -579,7 +586,30 @@ fun ExpenseListScreen(
                             headlineContent = { Text(e.title) },
                             supportingContent = { Text("£${"%.2f".format(e.amount)}") },
                             trailingContent = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                // NEW: show a small badge for receipt type
+                                val context = LocalContext.current
+                                val receiptUri = e.receiptUri
+                                val isPdf = remember(receiptUri) {
+                                    receiptUri?.let {
+                                        // MIME check, with safe fallback to .pdf extension
+                                        val t = runCatching { context.contentResolver.getType(Uri.parse(it)) }.getOrNull()
+                                        t == "application/pdf" || it.endsWith(".pdf", ignoreCase = true)
+                                    } ?: false
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (!receiptUri.isNullOrBlank()) {
+                                        Icon(
+                                            imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
+                                            contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
+                                            tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
                                     // keep your existing chip
                                     com.example.simpleexpenses.ui.components.StatusChip(e.status)
 
