@@ -12,6 +12,7 @@ room = "2.6.1"
 ksp = "2.0.21-1.0.25"
 coroutines = "1.8.1"
 navigation = "2.7.7"
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,6 +36,8 @@ room-ktx     = { module = "androidx.room:room-ktx",     version.ref = "room" }
 room-compiler= { module = "androidx.room:room-compiler",version.ref = "room" }
 
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 

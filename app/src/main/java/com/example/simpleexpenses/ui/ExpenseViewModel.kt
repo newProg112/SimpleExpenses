@@ -11,21 +11,66 @@ import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseDao
 import com.example.simpleexpenses.data.ExportUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class ExpenseFilters(
+    val category: String? = null,
+    val status: com.example.simpleexpenses.data.ExpenseStatus? = null,
+    val hasReceipt: Boolean? = null,
+    val fromDate: Long? = null,   // optional for later
+    val toDate: Long? = null      // optional for later
+)
+
 class ExpenseViewModel(
     private val expenseDao: ExpenseDao
 ) : ViewModel() {
 
+    // --- Reactive filters state ---
+    private val _filters = MutableStateFlow(ExpenseFilters())
+    val filters: StateFlow<ExpenseFilters> = _filters.asStateFlow()
+
+    private val _receiptUri = MutableStateFlow<String?>(null)
+    val receiptUri = _receiptUri.asStateFlow()
+
+    // Live list tied to filters → uses DAO.filtered(...)
+    @OptIn(ExperimentalCoroutinesApi::class)
     val expenses: StateFlow<List<Expense>> =
-        expenseDao.observeAll() // or getAllFlow()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        _filters
+            .flatMapLatest { f ->
+                expenseDao.filtered(
+                    category = f.category,
+                    status = f.status,
+                    fromDate = f.fromDate,
+                    toDate = f.toDate,
+                    hasReceipt = f.hasReceipt
+                )
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // --- Setters the UI calls ---
+    fun setCategory(value: String?) {
+        _filters.update { it.copy(category = value?.ifBlank { null }) }
+    }
+    fun setStatus(value: com.example.simpleexpenses.data.ExpenseStatus?) {
+        _filters.update { it.copy(status = value) }
+    }
+    fun setHasReceipt(value: Boolean?) {
+        _filters.update { it.copy(hasReceipt = value) }
+    }
+    fun clearFilters() {
+        _filters.value = ExpenseFilters()
+    }
 
     fun add(expense: Expense) = viewModelScope.launch {
         expenseDao.insert(expense)
@@ -64,28 +109,24 @@ class ExpenseViewModel(
         }
     }
 
-
-    /*
-    suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
-        // Fetch a one-shot snapshot from the DAO
-        val list = expenseDao.observeAll().first()
-
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date())
-        val file = File(context.cacheDir, "expenses-$stamp.csv")
-
-        file.bufferedWriter().use { w ->
-            w.appendLine("id,title,amount,timestamp")
-            list.forEach { e ->
-                w.append(e.id.toString()).append(',')
-                    .append(csvEscape(e.title)).append(',')
-                    .append(e.amount.toString()).append(',')
-                    .append(e.timestamp.toString())
-                    .appendLine()
-            }
+    fun attachReceipt(expenseId: Long, uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            expenseDao.updateReceiptUri(expenseId, uri.toString())
         }
-        file
     }
-    */
+
+    fun removeReceipt(expenseId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            expenseDao.clearReceiptUri(expenseId)
+        }
+    }
+
+    suspend fun suggestMerchants(prefix: String): List<String> =
+        expenseDao.suggestMerchants(prefix)
+
+    fun updateReceiptUri(uri: String) {
+        _receiptUri.value = uri
+    }
 }
 
 private fun csvEscape(s: String): String {

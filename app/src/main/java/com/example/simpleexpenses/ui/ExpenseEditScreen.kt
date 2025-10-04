@@ -1,13 +1,17 @@
 package com.example.simpleexpenses.ui
 
-import android.R.attr.saveEnabled
-import android.view.Surface
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -16,7 +20,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -28,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,10 +46,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import coil.compose.rememberAsyncImagePainter
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
 import kotlinx.coroutines.launch
@@ -65,6 +74,8 @@ fun ExpenseEditScreen(
 
     var category by rememberSaveable { mutableStateOf("General") }
     var merchant by rememberSaveable { mutableStateOf("") }
+    var merchantExpanded by remember { mutableStateOf(false) }
+    var merchantSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var reimbursable by rememberSaveable { mutableStateOf(true) }
     var paymentMethod by rememberSaveable { mutableStateOf("Personal") }
@@ -73,6 +84,8 @@ fun ExpenseEditScreen(
     val scope = rememberCoroutineScope()
 
     val focus = LocalFocusManager.current
+
+    var receiptLocalUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Validation
     val amount = amountText.toDoubleOrNull()
@@ -95,7 +108,9 @@ fun ExpenseEditScreen(
                 merchant = merchant.ifBlank { null },
                 notes = notes.ifBlank { null },
                 reimbursable = reimbursable,
-                paymentMethod = paymentMethod
+                paymentMethod = paymentMethod,
+                receiptUri = receiptLocalUri,
+                hasReceipt = !receiptLocalUri.isNullOrBlank()
             )
             if (existing == null) viewModel.add(updated) else viewModel.update(updated)
             onDone()
@@ -115,8 +130,16 @@ fun ExpenseEditScreen(
                 notes = e.notes.orEmpty()
                 reimbursable = e.reimbursable
                 paymentMethod = e.paymentMethod
+                receiptLocalUri = e.receiptUri
             }
         }
+    }
+
+    // Load suggestions as user types
+    LaunchedEffect(merchant) {
+        merchantSuggestions =
+            if (merchant.length >= 1) viewModel.suggestMerchants(merchant) else emptyList()
+        merchantExpanded = merchantSuggestions.isNotEmpty()
     }
 
     Scaffold(
@@ -207,14 +230,37 @@ fun ExpenseEditScreen(
             StatusPicker(value = status, onValueChange = { status = it })
             Spacer(Modifier.height(16.dp))
 
-            // Merchant
-            OutlinedTextField(
-                value = merchant,
-                onValueChange = { merchant = it },
-                label = { Text("Merchant") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            ExposedDropdownMenuBox(
+                expanded = merchantExpanded,
+                onExpandedChange = { merchantExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = merchant,
+                    onValueChange = {
+                        merchant = it
+                        merchantExpanded = true
+                    },
+                    label = { Text("Merchant") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = merchantExpanded,
+                    onDismissRequest = { merchantExpanded = false }
+                ) {
+                    merchantSuggestions.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s) },
+                            onClick = {
+                                merchant = s
+                                merchantExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
 
             // Category
@@ -270,6 +316,19 @@ fun ExpenseEditScreen(
                 minLines = 3
             )
 
+            ReceiptSection(
+                expenseId = expenseId,
+                currentReceiptUri = receiptLocalUri,   // 👈 use screen state
+                onPick = { uri ->
+                    receiptLocalUri = uri.toString()   // 👈 keep local in sync
+                    expenseId?.let { viewModel.attachReceipt(it, uri) } // existing items update DB
+                },
+                onRemove = {
+                    receiptLocalUri = null             // 👈 keep local in sync
+                    expenseId?.let { viewModel.removeReceipt(it) }
+                }
+            )
+
             Spacer(Modifier.height(80.dp)) // breathing room above bottom bar
         }
     }
@@ -305,5 +364,88 @@ fun StatusPicker(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun ReceiptSection(
+    expenseId: Long?,
+    currentReceiptUri: String?,
+    onPick: (Uri) -> Unit,
+    onRemove: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var localUri by remember(currentReceiptUri) { mutableStateOf(currentReceiptUri) }
+    var showPreview by remember { mutableStateOf(false) }
+
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // Persist read permission so we can keep loading it later
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // If permission already persisted, this will throw; safe to ignore.
+            }
+
+            onPick(uri)  // always update screen state; caller will decide DB update
+
+            // Optimistic UI
+            localUri = uri.toString()
+        }
+    }
+
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = {
+            // Allow images (and PDFs if you want to support them)
+            picker.launch(arrayOf("image/*"))
+        }) { Text(if (localUri.isNullOrEmpty()) "Add receipt photo" else "Replace receipt") }
+
+        if (!localUri.isNullOrEmpty()) {
+            OutlinedButton(onClick = {
+                onRemove()
+                localUri = null
+            }) { Text("Remove") }
+        }
+    }
+
+    if (!localUri.isNullOrEmpty()) {
+        Spacer(Modifier.height(12.dp))
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clickable { showPreview = true }
+        ) {
+            Image(
+                painter = rememberAsyncImagePainter(model = Uri.parse(localUri)),
+                contentDescription = "Receipt",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+
+    if (showPreview && !localUri.isNullOrEmpty()) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPreview = false },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showPreview = false }) { Text("Close") }
+            },
+            text = {
+                Image(
+                    painter = rememberAsyncImagePainter(model = Uri.parse(localUri)),
+                    contentDescription = "Receipt full screen",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(400.dp)
+                )
+            }
+        )
     }
 }

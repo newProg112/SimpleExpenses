@@ -1,23 +1,30 @@
 package com.example.simpleexpenses.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Divider
@@ -30,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -48,6 +56,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,7 +77,78 @@ import kotlinx.coroutines.launch
 
 private enum class SortOption { RECENT, OLDEST, AMOUNT_ASC, AMOUNT_DESC }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun FilterBar(
+    filters: ExpenseFilters,
+    onCategoryChange: (String?) -> Unit,
+    onStatusChange: (ExpenseStatus?) -> Unit,
+    onHasReceiptChange: (Boolean?) -> Unit,
+    onClear: () -> Unit
+) {
+    var categoryText by remember(filters.category) { mutableStateOf(filters.category.orEmpty()) }
+    var statusExpanded by remember { mutableStateOf(false) }
+    var receiptExpanded by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = categoryText,
+                onValueChange = {
+                    categoryText = it
+                    onCategoryChange(it.ifBlank { null })
+                },
+                label = { Text("Category") },
+                modifier = Modifier.weight(1f)
+            )
+
+            // Status dropdown
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { statusExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(filters.status?.name ?: "Status: Any")
+                }
+                DropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Any") }, onClick = {
+                        onStatusChange(null); statusExpanded = false
+                    })
+                    ExpenseStatus.values().forEach { s ->
+                        DropdownMenuItem(text = { Text(s.name) }, onClick = {
+                            onStatusChange(s); statusExpanded = false
+                        })
+                    }
+                }
+            }
+
+            // Receipt dropdown
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { receiptExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        when (filters.hasReceipt) {
+                            null -> "Receipt: Any"
+                            true -> "Receipt: With"
+                            false -> "Receipt: Without"
+                        }
+                    )
+                }
+                DropdownMenu(expanded = receiptExpanded, onDismissRequest = { receiptExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Any") }, onClick = { onHasReceiptChange(null); receiptExpanded = false })
+                    DropdownMenuItem(text = { Text("With") }, onClick = { onHasReceiptChange(true); receiptExpanded = false })
+                    DropdownMenuItem(text = { Text("Without") }, onClick = { onHasReceiptChange(false); receiptExpanded = false })
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = onClear) { Text("Clear filters") }
+            // (Optional) Add date range later
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
+    ExperimentalLayoutApi::class
+)
 @Composable
 fun ExpenseListScreen(
     viewModel: ExpenseViewModel,
@@ -77,6 +157,7 @@ fun ExpenseListScreen(
     onExport: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsState(initial = emptyList())
+    val filters by viewModel.filters.collectAsState()
 
     // Totals (enum comparisons)
     val submittedTotal = expenses.filter { it.status == ExpenseStatus.Submitted }.sumOf { it.amount }
@@ -100,21 +181,37 @@ fun ExpenseListScreen(
 
     var sort by rememberSaveable { mutableStateOf(SortOption.RECENT) }
 
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var reimbursableOnly by rememberSaveable { mutableStateOf(false) }
+    var paymentFilter by rememberSaveable { mutableStateOf<String?>(null) } // "Personal" or "CompanyCard"
+
+    var catMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var showMoreFilters by rememberSaveable { mutableStateOf(false) }
+    val categoryOptions = listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
+
     // Apply filter
     val displayedExpenses = expenses
-        // status filter
-        .let { list -> if (selectedStatus == null) list else list.filter { it.status == selectedStatus } }
-        // search filter
-        .let { list -> if (query.isBlank()) list else list.filter { it.title.contains(query, ignoreCase = true) } }
+        // reimbursable
+        .let { list -> if (!reimbursableOnly) list else list.filter { it.reimbursable } }
+        // payment method
+        .let { list -> if (paymentFilter == null) list else list.filter { it.paymentMethod == paymentFilter } }
+        // search (title or merchant)
+        .let { list ->
+            if (query.isBlank()) list else list.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                        (it.merchant?.contains(query, ignoreCase = true) == true)
+            }
+        }
         // sort
         .let { list ->
             when (sort) {
-                SortOption.RECENT      -> list.sortedByDescending { it.timestamp } // newest first
+                SortOption.RECENT      -> list.sortedByDescending { it.timestamp }
                 SortOption.OLDEST      -> list.sortedBy { it.timestamp }
                 SortOption.AMOUNT_ASC  -> list.sortedBy { it.amount }
                 SortOption.AMOUNT_DESC -> list.sortedByDescending { it.amount }
             }
         }
+
 
     val visibleCount = displayedExpenses.size
     val visibleTotal = displayedExpenses.sumOf { it.amount }
@@ -185,6 +282,14 @@ fun ExpenseListScreen(
                 )
             }
         ) {
+            FilterBar(
+                filters = filters,
+                onCategoryChange = viewModel::setCategory,
+                onStatusChange = viewModel::setStatus,
+                onHasReceiptChange = viewModel::setHasReceipt,
+                onClear = viewModel::clearFilters
+            )
+
             LazyColumn(Modifier.fillMaxSize()) {
                 // Summary at the top
                 stickyHeader {
@@ -242,6 +347,96 @@ fun ExpenseListScreen(
                                     label = { Text("Amount ↓") }
                                 )
                             }
+
+                            // Compact filter row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Category = single chip that opens a dropdown
+                                FilterChip(
+                                    selected = selectedCategory != null,
+                                    onClick = { catMenuExpanded = true },
+                                    label = { Text(selectedCategory ?: "Category") },
+                                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) }
+                                )
+                                DropdownMenu(
+                                    expanded = catMenuExpanded,
+                                    onDismissRequest = { catMenuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("All categories") },
+                                        onClick = {
+                                            selectedCategory = null
+                                            catMenuExpanded = false
+                                        }
+                                    )
+                                    categoryOptions.forEach { c ->
+                                        DropdownMenuItem(
+                                            text = { Text(c) },
+                                            onClick = {
+                                                selectedCategory = c
+                                                catMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+
+                                val activeFilters = listOfNotNull(
+                                    selectedCategory?.let { "cat" },
+                                    if (reimbursableOnly) "reimb" else null,
+                                    paymentFilter // "Personal" / "CompanyCard" or null
+                                ).size
+
+
+                                AssistChip(
+                                    onClick = { showMoreFilters = !showMoreFilters },
+                                    label = { Text(if (activeFilters > 0) "Filters ($activeFilters)" else "Filters") },
+                                    leadingIcon = { Icon(Icons.Filled.Tune, contentDescription = null) }
+                                )
+
+                                if (activeFilters > 0) {
+                                    AssistChip(
+                                        onClick = {
+                                            selectedCategory = null
+                                            reimbursableOnly = false
+                                            paymentFilter = null
+                                        },
+                                        label = { Text("Clear") }
+                                    )
+                                }
+
+                            }
+
+                            // Extra filters collapse down when not needed
+                            AnimatedVisibility(visible = showMoreFilters) {
+                                FlowRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = reimbursableOnly,
+                                        onClick = { reimbursableOnly = !reimbursableOnly },
+                                        label = { Text("Reimbursable only") }
+                                    )
+                                    FilterChip(
+                                        selected = paymentFilter == "Personal",
+                                        onClick = { paymentFilter = if (paymentFilter == "Personal") null else "Personal" },
+                                        label = { Text("Personal") }
+                                    )
+                                    FilterChip(
+                                        selected = paymentFilter == "CompanyCard",
+                                        onClick = { paymentFilter = if (paymentFilter == "CompanyCard") null else "CompanyCard" },
+                                        label = { Text("Company card") }
+                                    )
+                                }
+                            }
+
                         }
                     }
                 }
@@ -308,6 +503,8 @@ fun ExpenseListScreen(
 
                     // Show confirm for Paid only
                     var showConfirm by remember { mutableStateOf(false) }
+                    // Defer deletion so we don't mutate state inside confirm callback
+                    var pendingDelete by remember { mutableStateOf(false) }
 
                     // One place to perform delete + snackbar + undo + haptics
                     val onDelete: () -> Unit = {
@@ -328,23 +525,32 @@ fun ExpenseListScreen(
                     }
 
                     val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart ||
-                                value == SwipeToDismissBoxValue.StartToEnd
-                            ) {
-                                if (e.status == ExpenseStatus.Paid) {
-                                    // Guard: confirm before deleting Paid items
-                                    showConfirm = true
-                                    false // cancel swipe completion; we’ll handle via the dialog
-                                } else {
-                                    onDelete()
-                                    true
+                        confirmValueChange = { target ->
+                            when (target) {
+                                SwipeToDismissBoxValue.EndToStart,
+                                SwipeToDismissBoxValue.StartToEnd -> {
+                                    if (e.status == ExpenseStatus.Paid) {
+                                        // Guard: confirm before deleting Paid items
+                                        showConfirm = true
+                                        false // don't allow the dismiss to complete
+                                    } else {
+                                        // Defer deletion to a LaunchedEffect
+                                        pendingDelete = true
+                                        true  // allow the dismiss animation
+                                    }
                                 }
-                            } else {
-                                false
+                                else -> false
                             }
                         }
                     )
+
+                    // Perform the delete AFTER confirmValueChange, safely
+                    LaunchedEffect(pendingDelete) {
+                        if (pendingDelete) {
+                            pendingDelete = false
+                            onDelete()
+                        }
+                    }
 
                     // The swipe container (same background/content as before)
                     SwipeToDismissBox(
@@ -366,6 +572,15 @@ fun ExpenseListScreen(
                         }
                     ) {
                         ListItem(
+                            overlineContent = {
+                                val parts = buildList {
+                                    if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
+                                    add(e.category)
+                                    if (!e.reimbursable) add("Not reimbursable")
+                                    add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
+                                }
+                                Text(parts.joinToString(" • "))
+                            },
                             headlineContent = { Text(e.title) },
                             supportingContent = { Text("£${"%.2f".format(e.amount)}") },
                             trailingContent = {
