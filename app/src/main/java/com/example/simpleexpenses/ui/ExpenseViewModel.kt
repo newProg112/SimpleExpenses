@@ -40,6 +40,9 @@ class ExpenseViewModel(
     private val _filters = MutableStateFlow(ExpenseFilters())
     val filters: StateFlow<ExpenseFilters> = _filters.asStateFlow()
 
+    private val _receiptUri = MutableStateFlow<String?>(null)
+    val receiptUri = _receiptUri.asStateFlow()
+
     // Live list tied to filters → uses DAO.filtered(...)
     @OptIn(ExperimentalCoroutinesApi::class)
     val expenses: StateFlow<List<Expense>> =
@@ -106,30 +109,24 @@ class ExpenseViewModel(
         }
     }
 
+    fun attachReceipt(expenseId: Long, uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            expenseDao.updateReceiptUri(expenseId, uri.toString())
+        }
+    }
+
+    fun removeReceipt(expenseId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            expenseDao.clearReceiptUri(expenseId)
+        }
+    }
+
     suspend fun suggestMerchants(prefix: String): List<String> =
         expenseDao.suggestMerchants(prefix)
 
-    /*
-    suspend fun exportCsv(context: Context): File = withContext(Dispatchers.IO) {
-        // Fetch a one-shot snapshot from the DAO
-        val list = expenseDao.observeAll().first()
-
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.UK).format(Date())
-        val file = File(context.cacheDir, "expenses-$stamp.csv")
-
-        file.bufferedWriter().use { w ->
-            w.appendLine("id,title,amount,timestamp")
-            list.forEach { e ->
-                w.append(e.id.toString()).append(',')
-                    .append(csvEscape(e.title)).append(',')
-                    .append(e.amount.toString()).append(',')
-                    .append(e.timestamp.toString())
-                    .appendLine()
-            }
-        }
-        file
+    fun updateReceiptUri(uri: String) {
+        _receiptUri.value = uri
     }
-    */
 }
 
 private fun csvEscape(s: String): String {

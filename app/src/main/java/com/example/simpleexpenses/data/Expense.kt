@@ -15,5 +15,6 @@ data class Expense(
     val notes: String? = null,
     val reimbursable: Boolean = true,
     val paymentMethod: String = "Personal", // keep String to avoid converters for now
-    val hasReceipt: Boolean = false
+    val hasReceipt: Boolean = false,
+    val receiptUri: String? = null
 )

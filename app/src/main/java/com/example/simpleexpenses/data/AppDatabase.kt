@@ -27,6 +27,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'General'")
                 db.execSQL("ALTER TABLE expenses ADD COLUMN status TEXT NOT NULL DEFAULT 'Submitted'")
                 db.execSQL("ALTER TABLE expenses ADD COLUMN hasReceipt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE expenses ADD COLUMN receiptUri TEXT")
             }
         }
 
@@ -40,8 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
                     "expenses.db"
                 )
                     // Choose ONE of the following:
-                    .addMigrations(MIGRATION_1_2)        // ✅ keeps data if you were on v1
-                    // .fallbackToDestructiveMigration()  // 💥 dev-only: wipes DB on schema change
+                    // .addMigrations(MIGRATION_1_2)        // ✅ keeps data if you were on v1
+                    .fallbackToDestructiveMigration()  // 💥 dev-only: wipes DB on schema change
                     .build()
                     .also { INSTANCE = it }
             }

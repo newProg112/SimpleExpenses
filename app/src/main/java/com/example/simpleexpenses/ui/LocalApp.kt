@@ -15,15 +15,6 @@ class LocalApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-
-        db = Room.databaseBuilder(
-            applicationContext,
-            AppDatabase::class.java,
-            "simple-expenses.db"
-        )
-            // Use ONE of these:
-            .addMigrations(MIGRATION_1_2)        // keep existing data (requires you defined MIGRATION_1_2)
-            // .fallbackToDestructiveMigration()  // dev shortcut: wipes DB on schema change
-            .build()
+        db = AppDatabase.get(applicationContext) // ✅ use the singleton from AppDatabase
     }
 }
