@@ -1,6 +1,10 @@
 package com.example.simpleexpenses.ui
 
+import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -378,6 +382,7 @@ fun ReceiptSection(
     var localUri by remember(currentReceiptUri) { mutableStateOf(currentReceiptUri) }
     var showPreview by remember { mutableStateOf(false) }
 
+    // ---- PICK FILE (kept) ----
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -388,22 +393,42 @@ fun ReceiptSection(
                     uri,
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-            } catch (_: SecurityException) {
-                // If permission already persisted, this will throw; safe to ignore.
-            }
+            } catch (_: SecurityException) { /* already persisted or not persistable */ }
 
-            onPick(uri)  // always update screen state; caller will decide DB update
-
-            // Optimistic UI
-            localUri = uri.toString()
+            onPick(uri)                  // always update caller
+            localUri = uri.toString()    // optimistic UI
         }
     }
 
+    // ---- TAKE PHOTO (new) ----
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCaptureUri?.let { captured ->
+                onPick(captured)                 // update screen + DB (if existing)
+                localUri = captured.toString()   // optimistic UI
+            }
+        } else {
+            // If capture cancelled, clean up any empty row inserted into MediaStore
+            pendingCaptureUri?.let { context.contentResolver.delete(it, null, null) }
+        }
+        pendingCaptureUri = null
+    }
+
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Take photo (camera)
         Button(onClick = {
-            // Allow images (and PDFs if you want to support them)
-            picker.launch(arrayOf("image/*"))
-        }) { Text(if (localUri.isNullOrEmpty()) "Add receipt photo" else "Replace receipt") }
+            val uri = createImageUri(context)
+            pendingCaptureUri = uri
+            if (uri != null) cameraLauncher.launch(uri)
+        }) { Text("Take photo") }
+
+        // Pick file (document picker)
+        Button(onClick = { picker.launch(arrayOf("image/*")) }) {
+            Text(if (localUri.isNullOrEmpty()) "Pick file" else "Replace")
+        }
 
         if (!localUri.isNullOrEmpty()) {
             OutlinedButton(onClick = {
@@ -431,11 +456,9 @@ fun ReceiptSection(
     }
 
     if (showPreview && !localUri.isNullOrEmpty()) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showPreview = false },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showPreview = false }) { Text("Close") }
-            },
+            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("Close") } },
             text = {
                 Image(
                     painter = rememberAsyncImagePainter(model = Uri.parse(localUri)),
@@ -448,4 +471,18 @@ fun ReceiptSection(
             }
         )
     }
+}
+
+
+private fun createImageUri(context: Context): Uri? {
+    val name = "receipt_${System.currentTimeMillis()}.jpg"
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Shows in Photos > Albums > SimpleExpenses (Pictures/SimpleExpenses)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SimpleExpenses")
+        }
+    }
+    return context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
 }
