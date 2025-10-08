@@ -1,8 +1,10 @@
 package com.example.simpleexpenses
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -17,8 +19,12 @@ import com.example.simpleexpenses.ui.ExpenseEditScreen
 import com.example.simpleexpenses.ui.ExpenseListScreen
 import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
+import com.example.simpleexpenses.ui.MileageEditScreen
+import com.example.simpleexpenses.ui.MileageListScreen
+import com.example.simpleexpenses.ui.rememberMileageViewModel
 
 class MainActivity : ComponentActivity() {
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -35,7 +41,8 @@ class MainActivity : ComponentActivity() {
                             viewModel = vm,
                             onAdd = { nav.navigate("edit") },
                             onEdit = { id -> nav.navigate("edit?id=$id") },
-                            onExport = { nav.navigate("export") }
+                            onExport = { nav.navigate("export") },
+                            onOpenMileage = { nav.navigate("mileage") }
                         )
                     }
                     composable(
@@ -57,6 +64,20 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() }
                         )
                     }
+                    composable("mileage") {
+                        val vm = rememberMileageViewModel()
+                        MileageListScreen(
+                            vm = vm,
+                            onAddClick = { nav.navigate("mileage_edit") },
+                            onEdit = { /* v2: edit flow */ }
+                        )
+                    }
+
+                    composable("mileage_edit") {
+                        val vm = rememberMileageViewModel()
+                        MileageEditScreen(vm = vm, onDone = { nav.popBackStack() })
+                    }
+
                 }
             }
         }
