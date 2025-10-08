@@ -32,4 +32,10 @@ interface MileageDao {
         WHERE date BETWEEN :from AND :to
     """)
     fun observeTotalPenceInRange(from: LocalDate, to: LocalDate): Flow<Int>
+
+    @Query("SELECT * FROM mileage_entries WHERE id = :id LIMIT 1")
+    fun observeById(id: Long): kotlinx.coroutines.flow.Flow<MileageEntry?>
+
+    @Query("SELECT * FROM mileage_entries WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): MileageEntry?
 }

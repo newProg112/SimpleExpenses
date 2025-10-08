@@ -51,4 +51,6 @@ class MileageViewModel(
     }
 
     fun delete(id: Long) = viewModelScope.launch { dao.delete(id) }
+
+    fun entry(id: Long) = dao.observeById(id)
 }

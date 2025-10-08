@@ -65,17 +65,26 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable("mileage") {
-                        val vm = rememberMileageViewModel()
+                        val mvm = rememberMileageViewModel()
                         MileageListScreen(
-                            vm = vm,
-                            onAddClick = { nav.navigate("mileage_edit") },
-                            onEdit = { /* v2: edit flow */ }
+                            vm = mvm,
+                            onAddClick = { nav.navigate("mileage_edit?id=-1") },
+                            onEdit = { id -> nav.navigate("mileage_edit?id=$id") }   // ← open editor with id
                         )
                     }
 
-                    composable("mileage_edit") {
-                        val vm = rememberMileageViewModel()
-                        MileageEditScreen(vm = vm, onDone = { nav.popBackStack() })
+                    // mileage edit (optional id)
+                    composable(
+                        route = "mileage_edit?id={id}",
+                        arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })
+                    ) { backStack ->
+                        val id = backStack.arguments?.getLong("id") ?: -1L
+                        val mvm = rememberMileageViewModel()
+                        MileageEditScreen(
+                            vm = mvm,
+                            onDone = { nav.popBackStack() },
+                            editId = if (id >= 0) id else null                     // ← pass editId
+                        )
                     }
 
                 }

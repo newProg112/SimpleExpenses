@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -16,8 +17,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +41,8 @@ import kotlin.math.roundToInt
 @Composable
 fun MileageEditScreen(
     vm: MileageViewModel,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    editId: Long? = null
 ) {
     var date by remember { mutableStateOf(LocalDate.now()) }
     var from by remember { mutableStateOf("") }
@@ -45,6 +50,21 @@ fun MileageEditScreen(
     var distanceMeters by remember { mutableStateOf(0) }
     var ratePencePerMile by remember { mutableStateOf(45) } // demo default
     var notes by remember { mutableStateOf("") }
+
+    // Prefill when editing (only once when data arrives)
+    if (editId != null) {
+        val existing by vm.entry(editId).collectAsState(initial = null)
+        LaunchedEffect(existing?.id) {
+            existing?.let { e ->
+                date = e.date
+                from = e.fromLabel
+                to = e.toLabel
+                distanceMeters = e.distanceMeters
+                ratePencePerMile = e.ratePencePerMile
+                notes = e.notes.orEmpty()
+            }
+        }
+    }
 
     val miles = (distanceMeters / 1609.344 * 10).roundToInt() / 10.0
     val amountPence = (miles * ratePencePerMile).roundToInt()
@@ -56,7 +76,20 @@ fun MileageEditScreen(
         CrowFliesRoutesRepository()
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Add mileage") }) }) { pad ->
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (editId != null) "Edit mileage" else "Add mileage") },
+                actions = {
+                    if (editId != null) {
+                        TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }
+                    }
+                }
+            )
+        }
+    ) { pad ->
         Column(
             Modifier.padding(pad).padding(16.dp).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -123,6 +156,7 @@ fun MileageEditScreen(
                 Button(
                     onClick = {
                         vm.save(
+                            id = editId,
                             date = date,
                             fromLabel = from,
                             toLabel = to,
@@ -135,7 +169,24 @@ fun MileageEditScreen(
                     enabled = from.isNotBlank() && to.isNotBlank() && distanceMeters > 0
                 ) { Text("Save") }
 
-                OutlinedButton(onClick = onDone) { Text("Cancel") }
+                // Confirm delete dialog
+                if (showDeleteConfirm && editId != null) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteConfirm = false },
+                        title = { Text("Delete mileage") },
+                        text = { Text("Are you sure you want to delete this mileage entry?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                scope.launch { vm.delete(editId) }
+                                showDeleteConfirm = false
+                                onDone()
+                            }) { Text("Delete") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                        }
+                    )
+                }
             }
         }
     }
