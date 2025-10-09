@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Divider
@@ -161,7 +163,8 @@ fun ExpenseListScreen(
     viewModel: ExpenseViewModel,
     onAdd: () -> Unit,
     onEdit: (Long) -> Unit,
-    onExport: () -> Unit
+    onExport: () -> Unit,
+    onOpenMileage: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsState(initial = emptyList())
     val filters by viewModel.filters.collectAsState()
@@ -234,7 +237,20 @@ fun ExpenseListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Simple Expenses") },
-                actions = { TextButton(onClick = onExport) { Text("Export") } },
+                actions = {
+                    IconButton(onClick = onOpenMileage) {
+                        Icon(
+                            imageVector = Icons.Outlined.DirectionsCar,
+                            contentDescription = "Mileage"
+                        )
+                    }
+                    IconButton(onClick = onExport) {
+                        Icon(
+                            imageVector = Icons.Outlined.IosShare,
+                            contentDescription = "Export"
+                        )
+                    }
+                },
                 scrollBehavior = scrollBehavior
             )
         },
