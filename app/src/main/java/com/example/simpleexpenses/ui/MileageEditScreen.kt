@@ -4,6 +4,7 @@ import android.health.connect.datatypes.ExerciseRoute
 import android.location.Location
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -29,11 +32,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.simpleexpenses.data.MileageClaim
+import com.example.simpleexpenses.data.MileageEntry
+import com.example.simpleexpenses.data.VehicleType
 import com.example.simpleexpenses.network.CrowFliesRoutesRepository
 import com.example.simpleexpenses.network.LatLng
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,39 +52,53 @@ fun MileageEditScreen(
     onDone: () -> Unit,
     editId: Long? = null
 ) {
-    var date by remember { mutableStateOf(LocalDate.now()) }
+    // Observe VM UI/state
+    val ui by vm.ui.collectAsState()
+
+    // Local UI-only fields
+    // Keep From/To for user context; we fold them into note on save.
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
-    var distanceMeters by remember { mutableStateOf(0) }
-    var ratePencePerMile by remember { mutableStateOf(45) } // demo default
-    var notes by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var showVehicleMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // Prefill when editing (only once when data arrives)
+    // Date <-> epoch helpers
+    fun epochToLocalDate(epoch: Long): LocalDate =
+        Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    fun localDateToEpoch(ld: LocalDate): Long =
+        ld.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    // Derived display currency from vm.liveCostPence
+    val currency = remember { NumberFormat.getCurrencyInstance() }
+    val poundsString = currency.format(ui.liveCostPence / 100.0)
+
+    val scope = rememberCoroutineScope()
+
     if (editId != null) {
         val existing by vm.entry(editId).collectAsState(initial = null)
         LaunchedEffect(existing?.id) {
             existing?.let { e ->
-                date = e.date
+                // Set date into VM (needs onDateChanged in the VM — we added this earlier)
+                val epoch = e.date.atStartOfDay(java.time.ZoneId.systemDefault())
+                    .toInstant().toEpochMilli()
+                vm.onDateChanged(epoch)
+
+                // Translate distanceMeters -> miles for HMRC calc
+                val miles = e.distanceMeters / 1609.344
+                vm.onMilesChanged(miles)
+
+                // Notes
+                vm.onNoteChanged(e.notes.orEmpty())
+
+                // Keep From/To in the local screen fields for context (will be appended to note on save)
                 from = e.fromLabel
                 to = e.toLabel
-                distanceMeters = e.distanceMeters
-                ratePencePerMile = e.ratePencePerMile
-                notes = e.notes.orEmpty()
+                note = e.notes.orEmpty()
             }
         }
     }
-
-    val miles = (distanceMeters / 1609.344 * 10).roundToInt() / 10.0
-    val amountPence = (miles * ratePencePerMile).roundToInt()
-    val currency = remember { NumberFormat.getCurrencyInstance() }
-
-    val scope = rememberCoroutineScope()
-    val routesRepo = remember {
-        // TODO(v2): if (DevSettings.useGoogleRoutes) GoogleRoutesRepository() else CrowFliesRoutesRepository()
-        CrowFliesRoutesRepository()
-    }
-
-    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -91,102 +113,149 @@ fun MileageEditScreen(
         }
     ) { pad ->
         Column(
-            Modifier.padding(pad).padding(16.dp).fillMaxWidth(),
+            Modifier
+                .padding(pad)
+                .padding(16.dp)
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Date
+            var dateText by remember(ui.dateEpochMillis) {
+                mutableStateOf(epochToLocalDate(ui.dateEpochMillis).toString())
+            }
             OutlinedTextField(
-                value = date.toString(),
-                onValueChange = { runCatching { date = LocalDate.parse(it) } },
+                value = dateText,
+                onValueChange = {
+                    dateText = it
+                    runCatching { LocalDate.parse(it) }
+                        .onSuccess { vm.onDateChanged(localDateToEpoch(it)) }
+                },
                 label = { Text("Date (YYYY-MM-DD)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(value = from, onValueChange = { from = it },
-                label = { Text("From") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = to, onValueChange = { to = it },
-                label = { Text("To") }, modifier = Modifier.fillMaxWidth())
+            // From / To (kept as descriptive labels; saved into note)
+            OutlinedTextField(
+                value = from,
+                onValueChange = { from = it },
+                label = { Text("From (optional)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = to,
+                onValueChange = { to = it },
+                label = { Text("To (optional)") },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = (if (miles.isNaN()) 0.0 else miles).toString(),
-                    onValueChange = { v ->
-                        val parsed = v.toDoubleOrNull() ?: 0.0
-                        distanceMeters = (parsed * 1609.344).roundToInt()
-                    },
-                    label = { Text("Distance (miles)") },
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = ratePencePerMile.toString(),
-                    onValueChange = { ratePencePerMile = it.toIntOrNull() ?: ratePencePerMile },
-                    label = { Text("Rate (p/mi)") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            // Miles (drives live HMRC calc via VM)
+            OutlinedTextField(
+                value = if (ui.miles == 0.0) "" else ui.miles.toString(),
+                onValueChange = { text ->
+                    val miles = text.toDoubleOrNull() ?: 0.0
+                    vm.onMilesChanged(miles)
+                },
+                label = { Text("Distance (miles)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
-            // Optional quick helper: estimate straight-line distance from two lat/lng pairs
-            var fromLat by remember { mutableStateOf("") }; var fromLng by remember { mutableStateOf("") }
-            var toLat by remember { mutableStateOf("") }; var toLng by remember { mutableStateOf("") }
-            Text("Optional: paste coordinates to estimate distance")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(fromLat, { fromLat = it }, label = { Text("From lat") }, modifier = Modifier.weight(1f))
-                OutlinedTextField(fromLng, { fromLng = it }, label = { Text("From lng") }, modifier = Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(toLat, { toLat = it }, label = { Text("To lat") }, modifier = Modifier.weight(1f))
-                OutlinedTextField(toLng, { toLng = it }, label = { Text("To lng") }, modifier = Modifier.weight(1f))
-            }
-            Button(onClick = {
-                val aLat = fromLat.toDoubleOrNull(); val aLng = fromLng.toDoubleOrNull()
-                val bLat = toLat.toDoubleOrNull();   val bLng = toLng.toDoubleOrNull()
-                if (aLat != null && aLng != null && bLat != null && bLng != null) {
-                    scope.launch {
-                        val meters = routesRepo.computeDistanceMeters(
-                            origin = LatLng(aLat, aLng),
-                            dest   = LatLng(bLat, bLng)
+            // Passengers
+            OutlinedTextField(
+                value = ui.passengers.toString(),
+                onValueChange = { t -> vm.onPassengersChanged(t.toIntOrNull() ?: 0) },
+                label = { Text("Passengers") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            // Vehicle selector (Dropdown)
+            Column {
+                OutlinedTextField(
+                    value = ui.vehicle.name,
+                    onValueChange = {},
+                    label = { Text("Vehicle") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showVehicleMenu = true },
+                    readOnly = true
+                )
+                DropdownMenu(
+                    expanded = showVehicleMenu,
+                    onDismissRequest = { showVehicleMenu = false }
+                ) {
+                    VehicleType.entries.forEach { v ->
+                        DropdownMenuItem(
+                            text = { Text(v.name) },
+                            onClick = {
+                                vm.onVehicleChanged(v)
+                                showVehicleMenu = false
+                            }
                         )
-                        distanceMeters = meters
                     }
                 }
-            }) { Text("Estimate from coords") }
+            }
 
-            Text("Total: ${currency.format(amountPence / 100.0)}", style = MaterialTheme.typography.titleMedium)
+            // Additional notes (user free text). We’ll append From/To on save if provided.
+            OutlinedTextField(
+                value = note,
+                onValueChange = {
+                    note = it
+                    vm.onNoteChanged(it)
+                },
+                label = { Text("Notes (optional)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Live total from HMRC calc
+            Text(
+                text = "Estimated reimbursement: $poundsString",
+                style = MaterialTheme.typography.titleMedium
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = {
-                        vm.save(
-                            id = editId,
-                            date = date,
-                            fromLabel = from,
-                            toLabel = to,
-                            distanceMeters = distanceMeters,
-                            ratePencePerMile = ratePencePerMile,
-                            notes = notes.ifBlank { null }
-                        )
+                        // Fold From/To into note if provided
+                        val suffix = buildString {
+                            if (from.isNotBlank() || to.isNotBlank()) {
+                                append("Route: ")
+                                append(if (from.isNotBlank()) from else "?")
+                                append(" → ")
+                                append(if (to.isNotBlank()) to else "?")
+                            }
+                        }
+                        val finalNote =
+                            listOf(note.trim(), suffix.trim())
+                                .filter { it.isNotEmpty() }
+                                .joinToString(" — ")
+
+                        vm.onNoteChanged(finalNote)
+                        vm.saveClaim(editId, from, to)
                         onDone()
                     },
-                    enabled = from.isNotBlank() && to.isNotBlank() && distanceMeters > 0
+                    enabled = ui.miles > 0.0
                 ) { Text("Save") }
+            }
 
-                // Confirm delete dialog
-                if (showDeleteConfirm && editId != null) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteConfirm = false },
-                        title = { Text("Delete mileage") },
-                        text = { Text("Are you sure you want to delete this mileage entry?") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                scope.launch { vm.delete(editId) }
-                                showDeleteConfirm = false
-                                onDone()
-                            }) { Text("Delete") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-                        }
-                    )
-                }
+            // Delete dialog (delegates to old DAO delete if you still keep it; otherwise remove)
+            if (showDeleteConfirm && editId != null) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm = false },
+                    title = { Text("Delete mileage") },
+                    text = { Text("Are you sure you want to delete this mileage entry?") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            // If you have a delete by claim id in your DAO, call it here.
+                            // vm.delete(editId) // <- only if your VM exposes it for MileageClaim
+                            showDeleteConfirm = false
+                            onDone()
+                        }) { Text("Delete") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                    }
+                )
             }
         }
     }

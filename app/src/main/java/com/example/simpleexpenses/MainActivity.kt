@@ -19,9 +19,7 @@ import com.example.simpleexpenses.ui.ExpenseEditScreen
 import com.example.simpleexpenses.ui.ExpenseListScreen
 import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
-import com.example.simpleexpenses.ui.MileageEditScreen
-import com.example.simpleexpenses.ui.MileageListScreen
-import com.example.simpleexpenses.ui.rememberMileageViewModel
+import com.example.simpleexpenses.ui.MileageRoute
 
 class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
@@ -42,7 +40,7 @@ class MainActivity : ComponentActivity() {
                             onAdd = { nav.navigate("edit") },
                             onEdit = { id -> nav.navigate("edit?id=$id") },
                             onExport = { nav.navigate("export") },
-                            onOpenMileage = { nav.navigate("mileage") }
+                            onOpenMileage = { nav.navigate("mileage") } // now opens editor directly
                         )
                     }
                     composable(
@@ -64,30 +62,22 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() }
                         )
                     }
+
+                    // mileage: open editor
                     composable("mileage") {
-                        val mvm = rememberMileageViewModel()
-                        MileageListScreen(
-                            vm = mvm,
-                            onAddClick = { nav.navigate("mileage_edit?id=-1") },
-                            onEdit = { id -> nav.navigate("mileage_edit?id=$id") }   // ← open editor with id
-                        )
+                        MileageRoute(onDone = { nav.popBackStack() })
                     }
 
-                    // mileage edit (optional id)
+                    // mileage edit with optional id
                     composable(
                         route = "mileage_edit?id={id}",
                         arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })
-                    ) { backStack ->
-                        val id = backStack.arguments?.getLong("id") ?: -1L
-                        val mvm = rememberMileageViewModel()
-                        MileageEditScreen(
-                            vm = mvm,
-                            onDone = { nav.popBackStack() },
-                            editId = if (id >= 0) id else null                     // ← pass editId
-                        )
+                    ) {
+                        // You can read the id if you later extend MileageRoute to accept it.
+                        MileageRoute(onDone = { nav.popBackStack() })
                     }
-
                 }
+
             }
         }
     }

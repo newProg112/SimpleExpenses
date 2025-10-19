@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -47,20 +49,59 @@ fun MileageListScreen(
     onEdit: (Long) -> Unit
 ) {
     val items by vm.items.collectAsState()
-    val today = LocalDate.now()
-    val monthTotalPence by vm.totalPenceInMonth(today.year, today.monthValue)
-        .collectAsState(initial = 0)
     val currency = remember { NumberFormat.getCurrencyInstance() }
+
+    // --- New: simple month picker state (default: this month) ---
+    data class YearMonth(val year: Int, val month: Int) {
+        override fun toString(): String = "%04d-%02d".format(year, month)
+    }
+    val now = LocalDate.now()
+    val monthOptions = remember {
+        // last 12 months including current
+        (0 until 12).map { offset ->
+            val d = now.minusMonths(offset.toLong())
+            YearMonth(d.year, d.monthValue)
+        }
+    }
+    var selected by remember { mutableStateOf(YearMonth(now.year, now.monthValue)) }
+    var monthMenuOpen by remember { mutableStateOf(false) }
+
+    // --- Filter items to selected month (screen-side filtering keeps code simple) ---
+    val filtered = remember(items, selected) {
+        items.filter { e -> e.date.year == selected.year && e.date.monthValue == selected.month }
+    }
+    val monthTotalPence = remember(filtered) { filtered.sumOf { it.amountPence } }
 
     var toDeleteId by remember { mutableStateOf<Long?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mileage") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mileage", modifier = Modifier.padding(end = 12.dp))
+                        // Month dropdown "chip"
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { monthMenuOpen = true }
+                        ) {
+                            Text(selected.toString())
+                        }
+                        DropdownMenu(expanded = monthMenuOpen, onDismissRequest = { monthMenuOpen = false }) {
+                            monthOptions.forEach { ym ->
+                                DropdownMenuItem(
+                                    text = { Text(ym.toString()) },
+                                    onClick = {
+                                        selected = ym
+                                        monthMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
                 actions = {
                     Text(
-                        "This month: ${currency.format(monthTotalPence / 100.0)}",
+                        "Total: ${currency.format(monthTotalPence / 100.0)}",
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(end = 16.dp)
                     )
@@ -71,13 +112,13 @@ fun MileageListScreen(
             FloatingActionButton(onClick = onAddClick) { Text("+") }
         }
     ) { pad ->
-        if (items.isEmpty()) {
+        if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Text("No mileage yet — tap + to add a trip")
+                Text("No mileage in ${selected} — tap + to add a trip")
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
-                items(items, key = { it.id }) { e ->
+                items(filtered, key = { it.id }) { e ->
                     val miles = (e.distanceMeters / 1609.344 * 10.0).roundToInt() / 10.0
                     ListItem(
                         headlineContent = {
@@ -116,7 +157,7 @@ fun MileageListScreen(
                         TextButton(onClick = {
                             val id = toDeleteId!!
                             toDeleteId = null
-                            vm.delete(id)    // this is enough; it launches internally
+                            vm.delete(id)
                         }) { Text("Delete") }
                     },
                     dismissButton = {
