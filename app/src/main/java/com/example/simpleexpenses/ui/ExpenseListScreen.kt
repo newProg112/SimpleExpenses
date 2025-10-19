@@ -1,6 +1,11 @@
 package com.example.simpleexpenses.ui
 
+import android.Manifest
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -33,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Divider
@@ -79,8 +85,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import androidx.work.WorkManager
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
+import com.example.simpleexpenses.notify.ReminderScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -155,6 +163,7 @@ fun FilterBar(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalLayoutApi::class
 )
@@ -231,6 +240,20 @@ fun ExpenseListScreen(
     var refreshing by remember { mutableStateOf(false) }
     val ptrState = rememberPullToRefreshState()
 
+    val context = LocalContext.current
+    val workManager = remember { WorkManager.getInstance(context) }
+    var menuOpen = remember { mutableStateOf(false) }
+
+    // Android 13+ notification permission launcher
+    val requestNotifPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            // optional feedback
+            scope.launch { snackbarHostState.showSnackbar("Notifications disabled") }
+        }
+    }
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -248,6 +271,52 @@ fun ExpenseListScreen(
                         Icon(
                             imageVector = Icons.Outlined.IosShare,
                             contentDescription = "Export"
+                        )
+                    }
+                    IconButton(onClick = { menuOpen.value = true }) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen.value,
+                        onDismissRequest = { menuOpen.value = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Enable notifications") },
+                            onClick = {
+                                menuOpen.value = false
+                                if (Build.VERSION.SDK_INT >= 33) {
+                                    requestNotifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Send test notification") },
+                            onClick = {
+                                menuOpen.value = false
+                                ReminderScheduler.sendTestNow(
+                                    workManager,
+                                    title = "Quick reminder",
+                                    message = "Log today’s expenses/mileage."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Schedule daily @ 19:00") },
+                            onClick = {
+                                menuOpen.value = false
+                                ReminderScheduler.scheduleDaily(
+                                    workManager, hour = 19, minute = 0,
+                                    title = "Daily reminder",
+                                    message = "Remember to log your expenses/mileage."
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Cancel reminders") },
+                            onClick = {
+                                menuOpen.value = false
+                                ReminderScheduler.cancelAll(workManager)
+                            }
                         )
                     }
                 },
