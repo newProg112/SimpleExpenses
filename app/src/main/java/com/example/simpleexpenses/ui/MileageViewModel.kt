@@ -143,4 +143,9 @@ class MileageViewModel(
     fun onDateChanged(epochMillis: Long) {
         _ui.value = _ui.value.copy(dateEpochMillis = epochMillis)
     }
+
+    fun setUseHmrc(b: Boolean) = viewModelScope.launch { settingsRepo.setUseHmrc(b) }
+    fun setCustomRatePence(p: Int) = viewModelScope.launch { settingsRepo.setCustomRatePence(p) }
+    fun setReminderEnabled(b: Boolean) = viewModelScope.launch { settingsRepo.setReminderEnabled(b) }
+    fun setReminderTime(h: Int, m: Int) = viewModelScope.launch { settingsRepo.setReminderTime(h, m) }
 }
