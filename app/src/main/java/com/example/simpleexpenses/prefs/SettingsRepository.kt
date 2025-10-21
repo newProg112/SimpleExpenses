@@ -16,6 +16,9 @@ class SettingsRepository(private val context: Context) {
         val hmrcFirstRatePence = intPreferencesKey("hmrc_first_rate_pence")
         val hmrcSecondRatePence = intPreferencesKey("hmrc_second_rate_pence")
         val customRatePence = intPreferencesKey("custom_rate_pence")
+        val reminderEnabled = booleanPreferencesKey("reminder_enabled")
+        val reminderHour = intPreferencesKey("reminder_hour")
+        val reminderMinute = intPreferencesKey("reminder_minute")
     }
 
     // sensible UK defaults
@@ -25,13 +28,19 @@ class SettingsRepository(private val context: Context) {
             hmrcThresholdMiles = p[Keys.hmrcThresholdMiles] ?: 10_000,
             hmrcFirstRatePence = p[Keys.hmrcFirstRatePence] ?: 45,
             hmrcSecondRatePence = p[Keys.hmrcSecondRatePence] ?: 25,
-            customRatePence = p[Keys.customRatePence] ?: 45
+            customRatePence = p[Keys.customRatePence] ?: 45,
+            reminderEnabled = p[Keys.reminderEnabled] ?: false,
+            reminderHour = p[Keys.reminderHour] ?: 19,
+            reminderMinute = p[Keys.reminderMinute] ?: 0
         )
     }
 
     suspend fun setUseHmrc(use: Boolean) = context.dataStore.edit { it[Keys.useHmrc] = use }
     suspend fun setCustomRatePence(p: Int) = context.dataStore.edit { it[Keys.customRatePence] = p }
-    // Expose setters for the others if you want them editable.
+    suspend fun setReminderEnabled(b: Boolean) = context.dataStore.edit { it[Keys.reminderEnabled] = b }
+    suspend fun setReminderTime(h: Int, m: Int) = context.dataStore.edit {
+        it[Keys.reminderHour] = h; it[Keys.reminderMinute] = m
+    }
 }
 
 data class MileageRateSettings(
@@ -39,5 +48,8 @@ data class MileageRateSettings(
     val hmrcThresholdMiles: Int,
     val hmrcFirstRatePence: Int,
     val hmrcSecondRatePence: Int,
-    val customRatePence: Int
+    val customRatePence: Int,
+    val reminderEnabled: Boolean,
+    val reminderHour: Int,
+    val reminderMinute: Int
 )

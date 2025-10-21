@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -40,7 +41,8 @@ class MainActivity : ComponentActivity() {
                             onAdd = { nav.navigate("edit") },
                             onEdit = { id -> nav.navigate("edit?id=$id") },
                             onExport = { nav.navigate("export") },
-                            onOpenMileage = { nav.navigate("mileage") } // now opens editor directly
+                            onOpenMileage = { nav.navigate("mileage") }, // now opens editor directly
+                            onOpenSettings = { nav.navigate("settings") }
                         )
                     }
                     composable(
@@ -76,8 +78,20 @@ class MainActivity : ComponentActivity() {
                         // You can read the id if you later extend MileageRoute to accept it.
                         MileageRoute(onDone = { nav.popBackStack() })
                     }
-                }
 
+                    composable("settings") {
+                        // reuse the same MileageViewModel used elsewhere
+                        val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                        val mvm = androidx.lifecycle.viewmodel.compose.viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                        )
+                        com.example.simpleexpenses.ui.SettingsScreen(
+                            mileageVM = mvm,
+                            onBack = { nav.popBackStack() }
+                        )
+                    }
+                }
             }
         }
     }

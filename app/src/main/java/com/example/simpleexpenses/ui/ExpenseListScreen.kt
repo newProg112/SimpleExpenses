@@ -173,7 +173,8 @@ fun ExpenseListScreen(
     onAdd: () -> Unit,
     onEdit: (Long) -> Unit,
     onExport: () -> Unit,
-    onOpenMileage: () -> Unit
+    onOpenMileage: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsState(initial = emptyList())
     val filters by viewModel.filters.collectAsState()
@@ -318,6 +319,9 @@ fun ExpenseListScreen(
                                 ReminderScheduler.cancelAll(workManager)
                             }
                         )
+                    }
+                    IconButton(onClick = { onOpenSettings() }) {
+                        Icon(Icons.Filled.Tune, contentDescription = "Settings")
                     }
                 },
                 scrollBehavior = scrollBehavior
