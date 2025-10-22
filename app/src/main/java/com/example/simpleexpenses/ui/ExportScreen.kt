@@ -58,7 +58,10 @@ fun ExportScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    // Collect mileage using a local MileageVM
+    // ✅ Collect expenses from your ExpenseViewModel
+    val expenses: List<Expense> by viewModel.expenses.collectAsState()
+
+    // ✅ Collect mileage via a local VM
     val db = remember { AppDatabase.get(context.applicationContext) }
     val mileageVM: MileageViewModel = viewModel(
         factory = MileageVMFactory(context.applicationContext, db.mileageDao())
@@ -74,7 +77,8 @@ fun ExportScreen(
         if (uri != null) {
             scope.launch {
                 try {
-                    val csv = ExportCsv.buildMileageOnly(mileage)
+                    // ✅ Use full exporter now
+                    val csv = ExportCsv.buildFromExpensesAndMileage(expenses, mileage)
                     context.contentResolver.openOutputStream(uri)?.use { out ->
                         out.write(csv.toByteArray(Charsets.UTF_8))
                         out.flush()
@@ -107,8 +111,9 @@ fun ExportScreen(
         ) {
             Text("Create a CSV with all expenses and mileage.")
 
+            // ✅ Show both counts
             Text(
-                "Will export: ${mileage.size} mileage rows",
+                "Will export: ${expenses.size} expenses, ${mileage.size} mileage rows",
                 style = MaterialTheme.typography.labelLarge
             )
 
