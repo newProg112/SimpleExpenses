@@ -3,6 +3,7 @@ package com.example.simpleexpenses.ui
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -18,11 +20,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,14 +36,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.simpleexpenses.data.AppDatabase
 import com.example.simpleexpenses.data.Expense
+import com.example.simpleexpenses.data.MileageEntry
+import com.example.simpleexpenses.export.ExportCsv
 import kotlinx.coroutines.launch
 import java.io.OutputStreamWriter
 
-@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun ExportScreen(
     viewModel: ExpenseViewModel,
@@ -46,112 +56,74 @@ fun ExportScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var lastMessage by remember { mutableStateOf<String?>(null) }
+    val snackbar = remember { SnackbarHostState() }
 
-    val suggestedName = remember {
-        val d = java.time.LocalDate.now()
-        "expenses-$d.csv"
-    }
+    // Collect mileage using a local MileageVM
+    val db = remember { AppDatabase.get(context.applicationContext) }
+    val mileageVM: MileageViewModel = viewModel(
+        factory = MileageVMFactory(context.applicationContext, db.mileageDao())
+    )
+    val mileage: List<MileageEntry> by mileageVM.items.collectAsState()
 
-    val createCsv = rememberLauncherForActivityResult(
+    var targetUri by remember { mutableStateOf<Uri?>(null) }
+
+    val saver = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        if (uri == null) {
-            // user cancelled — just go back
-            onBack()
-            return@rememberLauncherForActivityResult
-        }
-
-        scope.launch {
-            val rows = viewModel.exportSnapshot()
-            val ok = writeExpensesCsv(context, uri.toString(), rows)
-            lastMessage = if (ok) "Exported ${rows.size} rows" else "Export failed"
-            onBack()
+        targetUri = uri
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val csv = ExportCsv.buildMileageOnly(mileage)
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(csv.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                    snackbar.showSnackbar("Exported to: ${uri.lastPathSegment ?: "file"}")
+                } catch (t: Throwable) {
+                    snackbar.showSnackbar("Export failed: ${t.message}")
+                }
+            }
         }
     }
 
-    // Auto-launch once when arriving on this screen
-    LaunchedEffect(Unit) { createCsv.launch(suggestedName) }
-
-    // Minimal fallback UI if needed
-    Scaffold(topBar = { TopAppBar(title = { Text("Export CSV") }) }) { pad ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Export CSV") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) { Text("Back") }
+                }
+            )
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbar) }
+    ) { pad ->
         Column(
             Modifier
                 .padding(pad)
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Choose where to save your CSV.")
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = { createCsv.launch(suggestedName) }) { Text("Save CSV") }
-            lastMessage?.let { msg ->
-                Spacer(Modifier.height(12.dp))
-                Text(msg, style = MaterialTheme.typography.labelMedium)
-            }
-            Spacer(Modifier.height(24.dp))
-            OutlinedButton(onClick = onBack) { Text("Back") }
-        }
-    }
-}
+            Text("Create a CSV with all expenses and mileage.")
 
-@RequiresApi(Build.VERSION_CODES.O)
-private fun writeExpensesCsv(
-    context: Context,
-    docUri: String,
-    rows: List<Expense>
-): Boolean {
-    return try {
-        val uri = android.net.Uri.parse(docUri)
-        context.contentResolver.openOutputStream(uri)?.use { os ->
-            OutputStreamWriter(os, Charsets.UTF_8).use { w ->
-                fun esc(v: String?): String {
-                    if (v == null) return ""
-                    val needsQuote = v.any { it == ',' || it == '"' || it == '\n' || it == '\r' } ||
-                            v.startsWith(' ') || v.endsWith(' ')
-                    return if (needsQuote) "\"" + v.replace("\"", "\"\"") + "\"" else v
-                }
+            Text(
+                "Will export: ${mileage.size} mileage rows",
+                style = MaterialTheme.typography.labelLarge
+            )
 
-                // Header (aligns with your Expense fields)
-                w.appendLine(
-                    listOf(
-                        "id","title","amount","status","category","merchant","notes",
-                        "reimbursable","paymentMethod","hasReceipt","receiptUri",
-                        "timestamp","timestamp_local"
-                    ).joinToString(",")
+            Button(
+                onClick = { saver.launch("simple_expenses_export.csv") }
+            ) { Text("Export as CSV") }
+
+            if (targetUri != null) {
+                Text(
+                    "Last exported: $targetUri",
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall
                 )
-
-                val zone = java.time.ZoneId.systemDefault()
-                val fmt  = java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME
-
-                // Rows
-                rows.forEach { e ->
-                    val localTime = java.time.Instant.ofEpochMilli(e.timestamp)
-                        .atZone(zone).toLocalDateTime().format(fmt)
-
-                    w.appendLine(
-                        listOf(
-                            e.id.toString(),
-                            esc(e.title),
-                            e.amount.toString(),
-                            e.status.name,
-                            esc(e.category),
-                            esc(e.merchant),
-                            esc(e.notes),
-                            e.reimbursable.toString(),
-                            esc(e.paymentMethod),
-                            e.hasReceipt.toString(),
-                            esc(e.receiptUri),
-                            e.timestamp.toString(),
-                            esc(localTime)
-                        ).joinToString(",")
-                    )
-                }
             }
         }
-        true
-    } catch (_: Throwable) {
-        false
     }
 }
