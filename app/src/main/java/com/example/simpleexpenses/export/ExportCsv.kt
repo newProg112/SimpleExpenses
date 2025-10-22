@@ -55,7 +55,7 @@ object ExportCsv {
 
         // --- Expenses section ---
         sb.appendLine("# Expenses")
-        sb.appendLine("date,category,title,merchant,amount_gbp,amount_pence,status,reimbursable,payment_method,has_receipt,notes")
+        sb.appendLine("date,category,title,merchant,amount_gbp,amount_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes")
         expenses.forEach { e ->
             val date = LocalDate.ofInstant(Instant.ofEpochMilli(e.timestamp), ZoneId.systemDefault())
             val amountPence = (e.amount * 100.0).roundToInt()
@@ -72,6 +72,7 @@ object ExportCsv {
                     e.reimbursable.toString(),
                     esc(e.paymentMethod),
                     e.hasReceipt.toString(),
+                    esc(e.receiptUri ?: ""),
                     esc(e.notes)
                 ).joinToString(",")
             )
