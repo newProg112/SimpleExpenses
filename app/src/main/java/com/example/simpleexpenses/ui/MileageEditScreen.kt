@@ -1,8 +1,12 @@
 package com.example.simpleexpenses.ui
 
+import android.content.Intent
 import android.health.connect.datatypes.ExerciseRoute
 import android.location.Location
+import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.simpleexpenses.data.MileageClaim
 import com.example.simpleexpenses.data.MileageEntry
@@ -54,6 +59,33 @@ fun MileageEditScreen(
 ) {
     // Observe VM UI/state
     val ui by vm.ui.collectAsState()
+
+    val context = LocalContext.current
+
+    // System picker for image/PDF receipt
+    val pickReceipt = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { /* some providers don’t support persist */ }
+            vm.onReceiptSelected(it.toString())
+        }
+    }
+
+    // Intent to open the attached receipt in an external viewer
+    val openReceipt: (String) -> Unit = { uriStr ->
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(Uri.parse(uriStr), "*/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            context.startActivity(intent)
+        }
+    }
+
 
     // Local UI-only fields
     // Keep From/To for user context; we fold them into note on save.
@@ -214,6 +246,17 @@ fun MileageEditScreen(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { pickReceipt.launch(arrayOf("image/*", "application/pdf")) }) {
+                    Text(if (ui.hasReceipt) "Replace receipt" else "Attach receipt")
+                }
+                if (ui.hasReceipt && ui.receiptUri != null) {
+                    OutlinedButton(onClick = { openReceipt(ui.receiptUri!!) }) {
+                        Text("View receipt")
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = {
                         // Fold From/To into note if provided
@@ -232,6 +275,9 @@ fun MileageEditScreen(
 
                         vm.onNoteChanged(finalNote)
                         vm.saveClaim(editId, from, to)
+                        android.widget.Toast
+                            .makeText(context, "Mileage saved", android.widget.Toast.LENGTH_SHORT)
+                            .show()
                         onDone()
                     },
                     enabled = ui.miles > 0.0

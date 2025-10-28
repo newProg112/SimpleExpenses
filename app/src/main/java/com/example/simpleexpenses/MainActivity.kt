@@ -8,6 +8,7 @@ import androidx.annotation.RequiresApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
                             onAdd = { nav.navigate("edit") },
                             onEdit = { id -> nav.navigate("edit?id=$id") },
                             onExport = { nav.navigate("export") },
-                            onOpenMileage = { nav.navigate("mileage") }, // now opens editor directly
+                            onOpenMileage = { nav.navigate("mileage_list") },
                             onOpenSettings = { nav.navigate("settings") }
                         )
                     }
@@ -68,6 +69,19 @@ class MainActivity : ComponentActivity() {
                     // mileage: open editor
                     composable("mileage") {
                         MileageRoute(onDone = { nav.popBackStack() })
+                    }
+
+                    composable("mileage_list") {
+                        val context = LocalContext.current.applicationContext
+                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                        val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                        )
+                        com.example.simpleexpenses.ui.MileageListScreen(
+                            vm = mvm,
+                            onAddClick = { nav.navigate("mileage") },
+                            onEdit = { id -> nav.navigate("mileage_edit?id=$id") }
+                        )
                     }
 
                     // mileage edit with optional id

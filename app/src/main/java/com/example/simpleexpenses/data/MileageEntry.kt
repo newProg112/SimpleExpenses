@@ -1,5 +1,6 @@
 package com.example.simpleexpenses.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.time.LocalDate
@@ -16,5 +17,7 @@ data class MileageEntry(
     val ratePencePerMile: Int,
     /** cached computed amount in pence for reporting/export */
     val amountPence: Int,
-    val notes: String? = null
+    val notes: String? = null,
+    @ColumnInfo(name = "receipt_uri") val receiptUri: String? = null,
+    @ColumnInfo(name = "has_receipt") val hasReceipt: Boolean = false,
 )

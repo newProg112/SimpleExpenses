@@ -106,6 +106,8 @@ fun FilterBar(
     var statusExpanded by remember { mutableStateOf(false) }
     var receiptExpanded by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -294,11 +296,7 @@ fun ExpenseListScreen(
                             text = { Text("Send test notification") },
                             onClick = {
                                 menuOpen.value = false
-                                ReminderScheduler.sendTestNow(
-                                    workManager,
-                                    title = "Quick reminder",
-                                    message = "Log today’s expenses/mileage."
-                                )
+                                ReminderScheduler.testNow(context)
                             }
                         )
                         DropdownMenuItem(

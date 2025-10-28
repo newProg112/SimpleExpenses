@@ -1,13 +1,16 @@
 package com.example.simpleexpenses.notify
 
+import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
@@ -27,6 +30,20 @@ object ReminderScheduler {
             .build()
 
         workManager.enqueueUniqueWork("test_reminder_now", ExistingWorkPolicy.REPLACE, req)
+    }
+
+    fun testNow(context: Context) {
+        val data = workDataOf(
+            ReminderWorker.KEY_TITLE to "Test notification",
+            ReminderWorker.KEY_MESSAGE to "This is a test."
+        )
+        val req = OneTimeWorkRequestBuilder<ReminderWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .setInputData(data)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork("test_reminder_now", ExistingWorkPolicy.REPLACE, req)
     }
 
     @RequiresApi(Build.VERSION_CODES.O)

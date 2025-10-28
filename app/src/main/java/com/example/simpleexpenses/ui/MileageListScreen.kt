@@ -55,20 +55,25 @@ fun MileageListScreen(
     data class YearMonth(val year: Int, val month: Int) {
         override fun toString(): String = "%04d-%02d".format(year, month)
     }
-    val now = LocalDate.now()
+    // Add an "All" option at the start
     val monthOptions = remember {
-        // last 12 months including current
-        (0 until 12).map { offset ->
-            val d = now.minusMonths(offset.toLong())
+        val now = LocalDate.now()
+        listOf(YearMonth(-1, -1)) + (0 until 12).map { off ->
+            val d = now.minusMonths(off.toLong())
             YearMonth(d.year, d.monthValue)
         }
     }
-    var selected by remember { mutableStateOf(YearMonth(now.year, now.monthValue)) }
+
+    // Default to current month (index 1), or change to 0 if you want "All" default
+    var selected by remember { mutableStateOf(monthOptions[0]) }
     var monthMenuOpen by remember { mutableStateOf(false) }
 
-    // --- Filter items to selected month (screen-side filtering keeps code simple) ---
+    // Filter mileage entries by month, or show all if "All" selected
     val filtered = remember(items, selected) {
-        items.filter { e -> e.date.year == selected.year && e.date.monthValue == selected.month }
+        if (selected.year == -1) items
+        else items.filter { e ->
+            e.date.year == selected.year && e.date.monthValue == selected.month
+        }
     }
     val monthTotalPence = remember(filtered) { filtered.sumOf { it.amountPence } }
 

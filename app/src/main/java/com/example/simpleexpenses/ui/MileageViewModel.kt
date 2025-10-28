@@ -27,7 +27,9 @@ data class MileageEditState(
     val vehicle: VehicleType = VehicleType.CAR,
     val passengers: Int = 0,
     val liveCostPence: Int = 0,
-    val settings: MileageRateSettings? = null
+    val settings: MileageRateSettings? = null,
+    val receiptUri: String? = null,
+    val hasReceipt: Boolean = false
 )
 
 class MileageViewModel(
@@ -69,7 +71,9 @@ class MileageViewModel(
             miles = existing.miles,
             note = existing.note.orEmpty(),
             vehicle = existing.vehicleType,
-            passengers = existing.passengers
+            passengers = existing.passengers,
+            receiptUri = existing.receiptUri,
+            hasReceipt = existing.hasReceipt
         )
         recompute(_ui.value)
     }
@@ -100,7 +104,9 @@ class MileageViewModel(
             distanceMeters = distanceMeters,
             ratePencePerMile = rateForEntry,
             amountPence = cost,
-            notes = st.note.ifBlank { null }
+            notes = st.note.ifBlank { null },
+            receiptUri = st.receiptUri,
+            hasReceipt = st.hasReceipt
         )
         dao.upsert(entry)
     }
@@ -148,4 +154,11 @@ class MileageViewModel(
     fun setCustomRatePence(p: Int) = viewModelScope.launch { settingsRepo.setCustomRatePence(p) }
     fun setReminderEnabled(b: Boolean) = viewModelScope.launch { settingsRepo.setReminderEnabled(b) }
     fun setReminderTime(h: Int, m: Int) = viewModelScope.launch { settingsRepo.setReminderTime(h, m) }
+
+    fun onReceiptSelected(uri: String?) {
+        _ui.value = _ui.value.copy(
+            receiptUri = uri,
+            hasReceipt = !uri.isNullOrBlank()
+        )
+    }
 }

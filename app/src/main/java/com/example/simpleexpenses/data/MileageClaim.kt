@@ -14,7 +14,10 @@ data class MileageClaim(
 
     // Persist what we actually used at save-time, for auditability/exports:
     val ratePenceApplied: Int? = null,   // null means HMRC tiered was used
-    val costPence: Int = 0               // computed reimbursement in pence
+    val costPence: Int = 0,               // computed reimbursement in pence
+
+    val receiptUri: String? = null,
+    val hasReceipt: Boolean = false
 )
 
 enum class VehicleType { CAR, MOTORCYCLE, CYCLE }
