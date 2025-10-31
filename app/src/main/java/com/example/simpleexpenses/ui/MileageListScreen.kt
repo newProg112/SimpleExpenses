@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +50,7 @@ fun MileageListScreen(
     onEdit: (Long) -> Unit
 ) {
     val items by vm.items.collectAsState()
+
     val currency = remember { NumberFormat.getCurrencyInstance() }
 
     // --- New: simple month picker state (default: this month) ---
@@ -117,6 +119,12 @@ fun MileageListScreen(
             FloatingActionButton(onClick = onAddClick) { Text("+") }
         }
     ) { pad ->
+        Text(
+            "Debug: ${filtered.size} entries",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(pad).padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
                 Text("No mileage in ${selected} — tap + to add a trip")

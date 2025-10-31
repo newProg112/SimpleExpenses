@@ -87,29 +87,48 @@ class MileageViewModel(
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    fun saveClaim(editingId: Long? = null, from: String = "", to: String = "") = viewModelScope.launch {
-        val s = settings.value ?: return@launch
-        val st = _ui.value
-        val cost = MileageCalculator.computeCostPence(st.miles, st.vehicle, st.passengers, s)
-        val date = Instant.ofEpochMilli(st.dateEpochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
-        val distanceMeters = (st.miles * 1609.344).roundToInt()
+    fun saveClaim(editingId: Long? = null, from: String = "", to: String = "") =
+        viewModelScope.launch {
+            // Use live settings if present, otherwise safe defaults so we still save
+            val s = settings.value ?: MileageRateSettings(
+                useHmrc = true,
+                hmrcThresholdMiles = 10_000,
+                hmrcFirstRatePence = 45,
+                hmrcSecondRatePence = 25,
+                customRatePence = 45,
+                reminderEnabled = false,
+                reminderHour = 19,
+                reminderMinute = 0
+            )
 
-        val rateForEntry = if (s.useHmrc && st.vehicle == VehicleType.CAR) s.hmrcFirstRatePence else s.customRatePence
+            val st = _ui.value
+            val cost = MileageCalculator.computeCostPence(st.miles, st.vehicle, st.passengers, s)
+            val date = Instant.ofEpochMilli(st.dateEpochMillis)
+                .atZone(ZoneId.systemDefault()).toLocalDate()
+            val distanceMeters = (st.miles * 1609.344).roundToInt()
 
-        val entry = MileageEntry(
-            id = editingId ?: 0L,
-            date = date,
-            fromLabel = from.ifBlank { "?" },
-            toLabel = to.ifBlank { "?" },
-            distanceMeters = distanceMeters,
-            ratePencePerMile = rateForEntry,
-            amountPence = cost,
-            notes = st.note.ifBlank { null },
-            receiptUri = st.receiptUri,
-            hasReceipt = st.hasReceipt
-        )
-        dao.upsert(entry)
-    }
+            val rateForEntry =
+                if (s.useHmrc && st.vehicle == VehicleType.CAR) s.hmrcFirstRatePence else s.customRatePence
+
+            val entry = MileageEntry(
+                id = editingId ?: 0L,
+                date = date,
+                fromLabel = if (from.isBlank()) "?" else from,
+                toLabel   = if (to.isBlank()) "?" else to,
+                distanceMeters = distanceMeters,
+                ratePencePerMile = rateForEntry,
+                amountPence = cost,
+                notes = st.note.ifBlank { null },
+                receiptUri = st.receiptUri,
+                hasReceipt = st.hasReceipt
+            )
+
+            val newId = dao.upsert(entry) // ok if your @Upsert returns Unit; keep var for logging anyway
+            android.util.Log.d(
+                "MileageSave",
+                "Saved id=$newId date=$date miles=${st.miles} costP=$cost from='$from' to='$to'"
+            )
+        }
 
     @RequiresApi(Build.VERSION_CODES.O)
     fun totalPenceInMonth(year: Int, month: Int) =
