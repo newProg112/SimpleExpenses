@@ -38,7 +38,7 @@ class ReminderWorker(
 
         val notif = NotificationCompat.Builder(context, LocalApp.REMINDER_CHANNEL_ID)
             // If you don’t have a status icon, this falls back to the app icon
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_expenses)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(pending)

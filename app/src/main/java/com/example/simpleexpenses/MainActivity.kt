@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -88,9 +89,25 @@ class MainActivity : ComponentActivity() {
                     composable(
                         route = "mileage_edit?id={id}",
                         arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })
-                    ) {
-                        // You can read the id if you later extend MileageRoute to accept it.
-                        MileageRoute(onDone = { nav.popBackStack() })
+                    ) { backStackEntry ->
+                        val context = LocalContext.current.applicationContext
+                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                        val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                        )
+
+                        val rawId = backStackEntry.arguments?.getLong("id") ?: -1L
+                        val editId: Long? = if (rawId > 0) rawId else null
+
+                        // Preload the VM with the row we’re editing
+                        LaunchedEffect(editId) { mvm.beginEdit(editId) }
+
+                        // Call the editor directly, passing the id through
+                        com.example.simpleexpenses.ui.MileageEditScreen(
+                            vm = mvm,
+                            editId = editId,
+                            onDone = { nav.popBackStack() }
+                        )
                     }
 
                     composable("settings") {

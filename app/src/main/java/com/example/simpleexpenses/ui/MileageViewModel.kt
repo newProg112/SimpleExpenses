@@ -11,6 +11,7 @@ import com.example.simpleexpenses.data.VehicleType
 import com.example.simpleexpenses.domain.MileageCalculator
 import com.example.simpleexpenses.prefs.MileageRateSettings
 import com.example.simpleexpenses.prefs.SettingsRepository
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -47,6 +48,8 @@ class MileageViewModel(
     private val _ui = kotlinx.coroutines.flow.MutableStateFlow(MileageEditState())
     val ui: StateFlow<MileageEditState> = _ui
 
+    private var editingId: Long? = null
+
     init {
         // When settings emit (including the first time), recompute with current inputs
         viewModelScope.launch {
@@ -78,6 +81,24 @@ class MileageViewModel(
         recompute(_ui.value)
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun beginEdit(id: Long?) = viewModelScope.launch {
+        editingId = id
+        if (id != null) {
+            dao.observeById(id).firstOrNull()?.let { e ->
+                _ui.value = _ui.value.copy(
+                    dateEpochMillis = e.date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    miles = (e.distanceMeters / 1609.344),
+                    note = e.notes.orElse(""),
+                    receiptUri = e.receiptUri,
+                    hasReceipt = e.hasReceipt
+                )
+                recompute(_ui.value)
+            }
+        }
+    }
+    private fun String?.orElse(fallback: String) = this ?: fallback
+
     private fun recompute(next: MileageEditState) {
         val s = settings.value
         val cost = if (s != null)
@@ -87,7 +108,7 @@ class MileageViewModel(
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    fun saveClaim(editingId: Long? = null, from: String = "", to: String = "") =
+    fun saveClaim(editId: Long? = null, from: String = "", to: String = "") =
         viewModelScope.launch {
             // Use live settings if present, otherwise safe defaults so we still save
             val s = settings.value ?: MileageRateSettings(
@@ -106,12 +127,14 @@ class MileageViewModel(
             val date = Instant.ofEpochMilli(st.dateEpochMillis)
                 .atZone(ZoneId.systemDefault()).toLocalDate()
             val distanceMeters = (st.miles * 1609.344).roundToInt()
-
             val rateForEntry =
                 if (s.useHmrc && st.vehicle == VehicleType.CAR) s.hmrcFirstRatePence else s.customRatePence
 
+            // Critical: prefer the explicit editId (from screen) then the remembered editingId
+            val targetId: Long? = editId ?: editingId
+
             val entry = MileageEntry(
-                id = editingId ?: 0L,
+                id = targetId ?: 0L, // 0L => insert; otherwise update
                 date = date,
                 fromLabel = if (from.isBlank()) "?" else from,
                 toLabel   = if (to.isBlank()) "?" else to,
@@ -123,10 +146,17 @@ class MileageViewModel(
                 hasReceipt = st.hasReceipt
             )
 
-            val newId = dao.upsert(entry) // ok if your @Upsert returns Unit; keep var for logging anyway
+            // Your @Upsert may return Unit; that’s fine—we still wrote the row
+            dao.upsert(entry)
+
+            // If we just inserted (targetId == null), remember that future saves should update.
+            // We can’t know the new id here if @Upsert returns Unit, so we’ll rely on the
+            // edit route passing id for edits; this path mainly matters on new rows.
+            if (targetId != null) editingId = targetId
+
             android.util.Log.d(
                 "MileageSave",
-                "Saved id=$newId date=$date miles=${st.miles} costP=$cost from='$from' to='$to'"
+                "Saved id=${targetId ?: 0L} date=$date miles=${st.miles} costP=$cost from='$from' to='$to'"
             )
         }
 

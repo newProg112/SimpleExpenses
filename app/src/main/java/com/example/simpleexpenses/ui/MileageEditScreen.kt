@@ -5,6 +5,7 @@ import android.health.connect.datatypes.ExerciseRoute
 import android.location.Location
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -23,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -43,6 +46,7 @@ import com.example.simpleexpenses.data.VehicleType
 import com.example.simpleexpenses.network.CrowFliesRoutesRepository
 import com.example.simpleexpenses.network.LatLng
 import kotlinx.coroutines.launch
+import java.lang.ProcessBuilder.Redirect.to
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -62,19 +66,8 @@ fun MileageEditScreen(
 
     val context = LocalContext.current
 
-    // System picker for image/PDF receipt
-    val pickReceipt = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: SecurityException) { /* some providers don’t support persist */ }
-            vm.onReceiptSelected(it.toString())
-        }
-    }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // Intent to open the attached receipt in an external viewer
     val openReceipt: (String) -> Unit = { uriStr ->
@@ -86,7 +79,6 @@ fun MileageEditScreen(
         }
     }
 
-
     // Local UI-only fields
     // Keep From/To for user context; we fold them into note on save.
     var from by remember { mutableStateOf("") }
@@ -94,6 +86,29 @@ fun MileageEditScreen(
     var note by remember { mutableStateOf("") }
     var showVehicleMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // System picker for image/PDF receipt
+    val pickReceipt = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { /* some providers don’t support persist */ }
+            vm.onReceiptSelected(it.toString())
+
+            if (editId != null) {
+                vm.saveClaim(editId, from, to)
+                // Toast.makeText(context, "Receipt attached", Toast.LENGTH_SHORT).show()
+                // show Snackbar instead of Toast
+                scope.launch {
+                    snackbarHostState.showSnackbar("Receipt attached")
+                }
+            }
+        }
+    }
 
     // Date <-> epoch helpers
     fun epochToLocalDate(epoch: Long): LocalDate =
@@ -105,8 +120,6 @@ fun MileageEditScreen(
     // Derived display currency from vm.liveCostPence
     val currency = remember { NumberFormat.getCurrencyInstance() }
     val poundsString = currency.format(ui.liveCostPence / 100.0)
-
-    val scope = rememberCoroutineScope()
 
     if (editId != null) {
         val existing by vm.entry(editId).collectAsState(initial = null)
@@ -133,6 +146,7 @@ fun MileageEditScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(if (editId != null) "Edit mileage" else "Add mileage") },
@@ -280,8 +294,11 @@ fun MileageEditScreen(
                             .show()
                         onDone()
                     },
-                    enabled = ui.miles > 0.0
-                ) { Text("Save") }
+                    enabled = (ui.miles > 0 && from.isNotBlank() && to.isNotBlank())
+                            || ui.receiptUri != null // allow re-saving when attaching/removing receipt
+                ) {
+                    Text("Save")
+                }
             }
 
             // Delete dialog (delegates to old DAO delete if you still keep it; otherwise remove)
