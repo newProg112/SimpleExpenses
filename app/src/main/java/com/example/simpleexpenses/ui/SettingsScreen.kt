@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkManager
@@ -35,10 +36,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     mileageVM: MileageViewModel,  // reuse the VM that already exposes settings
+    themeMode: AppThemeMode,
+    onThemeChange: (AppThemeMode) -> Unit,
     onBack: () -> Unit
 ) {
     val ui by mileageVM.ui.collectAsState()
     val settings = ui.settings
+    val reminderEnabled = settings?.reminderEnabled == true
     val scope = rememberCoroutineScope()
     val context = LocalAppHolder.current // see helper below
     val wm = remember { WorkManager.getInstance(context) }
@@ -122,6 +126,7 @@ fun SettingsScreen(
                     label = { Text("Hour (0–23)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled = reminderEnabled,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -135,6 +140,7 @@ fun SettingsScreen(
                     label = { Text("Minute (0–59)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled = reminderEnabled,
                     modifier = Modifier.weight(1f)
                 )
                 Button(
@@ -150,6 +156,37 @@ fun SettingsScreen(
                     }
                 ) { Text("Apply") }
             }
+
+            Divider()
+
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ThemeChoiceChip(
+                    label = "System",
+                    mode = AppThemeMode.SYSTEM,
+                    current = themeMode,
+                    onSelected = onThemeChange,
+                    modifier = Modifier.weight(1f)
+                )
+                ThemeChoiceChip(
+                    label = "Light",
+                    mode = AppThemeMode.LIGHT,
+                    current = themeMode,
+                    onSelected = onThemeChange,
+                    modifier = Modifier.weight(1f)
+                )
+                ThemeChoiceChip(
+                    label = "Dark",
+                    mode = AppThemeMode.DARK,
+                    current = themeMode,
+                    onSelected = onThemeChange,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -158,4 +195,22 @@ fun SettingsScreen(
 object LocalAppHolder {
     val current: android.content.Context
         @Composable get() = androidx.compose.ui.platform.LocalContext.current.applicationContext
+}
+
+@Composable
+private fun ThemeChoiceChip(
+    label: String,
+    mode: AppThemeMode,
+    current: AppThemeMode,
+    onSelected: (AppThemeMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val selected = current == mode
+    OutlinedButton(
+        onClick = { onSelected(mode) },
+        enabled = !selected,
+        modifier = modifier
+    ) {
+        Text(label)
+    }
 }

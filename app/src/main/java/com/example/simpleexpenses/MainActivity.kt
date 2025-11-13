@@ -8,7 +8,10 @@ import androidx.annotation.RequiresApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -16,6 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.simpleexpenses.ui.AppThemeMode
 import com.example.simpleexpenses.ui.LocalApp
 import com.example.simpleexpenses.ui.ExpenseViewModel
 import com.example.simpleexpenses.ui.ExpenseEditScreen
@@ -23,6 +27,7 @@ import com.example.simpleexpenses.ui.ExpenseListScreen
 import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
 import com.example.simpleexpenses.ui.MileageRoute
+import com.example.simpleexpenses.ui.SimpleExpensesTheme
 
 class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
@@ -32,95 +37,99 @@ class MainActivity : ComponentActivity() {
         val app = application as LocalApp
 
         setContent {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                val nav = rememberNavController()
-                val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
+            // App-wide theme mode (for now, in-memory only)
+            var themeMode by remember { mutableStateOf(AppThemeMode.SYSTEM) }
 
-                NavHost(navController = nav, startDestination = "list") {
-                    composable("list") {
-                        ExpenseListScreen(
-                            viewModel = vm,
-                            onAdd = { nav.navigate("edit") },
-                            onEdit = { id -> nav.navigate("edit?id=$id") },
-                            onExport = { nav.navigate("export") },
-                            onOpenMileage = { nav.navigate("mileage_list") },
-                            onOpenSettings = { nav.navigate("settings") }
-                        )
-                    }
-                    composable(
-                        route = "edit?id={id}",
-                        arguments = listOf(
-                            navArgument("id") { type = NavType.LongType; defaultValue = -1L }
-                        )
-                    ) { backStack ->
-                        val id = backStack.arguments?.getLong("id") ?: -1L
-                        ExpenseEditScreen(
-                            viewModel = vm,
-                            expenseId = if (id >= 0) id else null,
-                            onDone = { nav.popBackStack() }
-                        )
-                    }
-                    composable("export") {
-                        ExportScreen(
-                            viewModel = vm,
-                            onBack = { nav.popBackStack() }
-                        )
-                    }
+            SimpleExpensesTheme(mode = themeMode) {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    val nav = rememberNavController()
+                    val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
 
-                    // mileage: open editor
-                    composable("mileage") {
-                        MileageRoute(onDone = { nav.popBackStack() })
-                    }
+                    NavHost(navController = nav, startDestination = "list") {
+                        composable("list") {
+                            ExpenseListScreen(
+                                viewModel = vm,
+                                onAdd = { nav.navigate("edit") },
+                                onEdit = { id -> nav.navigate("edit?id=$id") },
+                                onExport = { nav.navigate("export") },
+                                onOpenMileage = { nav.navigate("mileage_list") },
+                                onOpenSettings = { nav.navigate("settings") }
+                            )
+                        }
+                        composable(
+                            route = "edit?id={id}",
+                            arguments = listOf(
+                                navArgument("id") { type = NavType.LongType; defaultValue = -1L }
+                            )
+                        ) { backStack ->
+                            val id = backStack.arguments?.getLong("id") ?: -1L
+                            ExpenseEditScreen(
+                                viewModel = vm,
+                                expenseId = if (id >= 0) id else null,
+                                onDone = { nav.popBackStack() }
+                            )
+                        }
+                        composable("export") {
+                            ExportScreen(
+                                viewModel = vm,
+                                onBack = { nav.popBackStack() }
+                            )
+                        }
 
-                    composable("mileage_list") {
-                        val context = LocalContext.current.applicationContext
-                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
-                        val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
-                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
-                        )
-                        com.example.simpleexpenses.ui.MileageListScreen(
-                            vm = mvm,
-                            onAddClick = { nav.navigate("mileage") },
-                            onEdit = { id -> nav.navigate("mileage_edit?id=$id") }
-                        )
-                    }
+                        // mileage: open editor
+                        composable("mileage") {
+                            MileageRoute(onDone = { nav.popBackStack() })
+                        }
 
-                    // mileage edit with optional id
-                    composable(
-                        route = "mileage_edit?id={id}",
-                        arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })
-                    ) { backStackEntry ->
-                        val context = LocalContext.current.applicationContext
-                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
-                        val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
-                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
-                        )
+                        composable("mileage_list") {
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                            val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                                factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                            )
+                            com.example.simpleexpenses.ui.MileageListScreen(
+                                vm = mvm,
+                                onAddClick = { nav.navigate("mileage") },
+                                onEdit = { id -> nav.navigate("mileage_edit?id=$id") }
+                            )
+                        }
 
-                        val rawId = backStackEntry.arguments?.getLong("id") ?: -1L
-                        val editId: Long? = if (rawId > 0) rawId else null
+                        // mileage edit with optional id
+                        composable(
+                            route = "mileage_edit?id={id}",
+                            arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = -1L })
+                        ) { backStackEntry ->
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                            val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                                factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                            )
 
-                        // Preload the VM with the row we’re editing
-                        LaunchedEffect(editId) { mvm.beginEdit(editId) }
+                            val rawId = backStackEntry.arguments?.getLong("id") ?: -1L
+                            val editId: Long? = if (rawId > 0) rawId else null
 
-                        // Call the editor directly, passing the id through
-                        com.example.simpleexpenses.ui.MileageEditScreen(
-                            vm = mvm,
-                            editId = editId,
-                            onDone = { nav.popBackStack() }
-                        )
-                    }
+                            LaunchedEffect(editId) { mvm.beginEdit(editId) }
 
-                    composable("settings") {
-                        // reuse the same MileageViewModel used elsewhere
-                        val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
-                        val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
-                        val mvm = androidx.lifecycle.viewmodel.compose.viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
-                            factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
-                        )
-                        com.example.simpleexpenses.ui.SettingsScreen(
-                            mileageVM = mvm,
-                            onBack = { nav.popBackStack() }
-                        )
+                            com.example.simpleexpenses.ui.MileageEditScreen(
+                                vm = mvm,
+                                editId = editId,
+                                onDone = { nav.popBackStack() }
+                            )
+                        }
+
+                        composable("settings") {
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                            val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                                factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                            )
+                            com.example.simpleexpenses.ui.SettingsScreen(
+                                mileageVM = mvm,
+                                themeMode = themeMode,
+                                onThemeChange = { newMode -> themeMode = newMode },
+                                onBack = { nav.popBackStack() }
+                            )
+                        }
                     }
                 }
             }

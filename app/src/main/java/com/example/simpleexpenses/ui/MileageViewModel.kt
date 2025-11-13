@@ -42,7 +42,7 @@ class MileageViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val settings: StateFlow<MileageRateSettings?> =
-        settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Lazily, null)
+        settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     // You may already have MutableStateFlow<MileageEditState>; just ensure we recompute on change
     private val _ui = kotlinx.coroutines.flow.MutableStateFlow(MileageEditState())
