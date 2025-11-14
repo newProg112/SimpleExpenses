@@ -38,6 +38,7 @@ fun SettingsScreen(
     mileageVM: MileageViewModel,  // reuse the VM that already exposes settings
     themeMode: AppThemeMode,
     onThemeChange: (AppThemeMode) -> Unit,
+    onOpenAppInfo: () -> Unit,
     onBack: () -> Unit
 ) {
     val ui by mileageVM.ui.collectAsState()
@@ -186,6 +187,17 @@ fun SettingsScreen(
                     onSelected = onThemeChange,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            Divider()
+
+            Text(
+                "About",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            TextButton(onClick = onOpenAppInfo) {
+                Text("App info")
             }
         }
     }

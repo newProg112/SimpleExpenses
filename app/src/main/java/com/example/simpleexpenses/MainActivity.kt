@@ -127,6 +127,13 @@ class MainActivity : ComponentActivity() {
                                 mileageVM = mvm,
                                 themeMode = themeMode,
                                 onThemeChange = { newMode -> themeMode = newMode },
+                                onOpenAppInfo = { nav.navigate("app_info") },
+                                onBack = { nav.popBackStack() }
+                            )
+                        }
+
+                        composable("app_info") {
+                            com.example.simpleexpenses.ui.AppInfoScreen(
                                 onBack = { nav.popBackStack() }
                             )
                         }
