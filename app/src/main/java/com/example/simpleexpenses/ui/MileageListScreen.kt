@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
@@ -244,7 +246,26 @@ fun MileageListScreen(
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(currency.format(e.amountPence / 100.0))
+
+                                if (e.hasReceipt) {
+                                    val isPdf = e.receiptUri?.lowercase()?.endsWith(".pdf") == true
+
+                                    Icon(
+                                        imageVector = if (isPdf)
+                                            Icons.Outlined.PictureAsPdf
+                                        else
+                                            Icons.Outlined.Image,
+                                        contentDescription = "Attachment",
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                Text(
+                                    currency.format(e.amountPence / 100.0),
+                                    modifier = Modifier.padding(end = 4.dp)
+                                )
+
                                 IconButton(onClick = { toDeleteId = e.id }) {
                                     Icon(
                                         imageVector = Icons.Outlined.Delete,

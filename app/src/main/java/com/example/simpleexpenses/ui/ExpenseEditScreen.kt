@@ -84,6 +84,8 @@ fun ExpenseEditScreen(
     var amountText by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf(ExpenseStatus.Submitted) }
 
+    var titleTouched by rememberSaveable { mutableStateOf(false) }
+
     var category by rememberSaveable { mutableStateOf("General") }
     var merchant by rememberSaveable { mutableStateOf("") }
     var merchantExpanded by remember { mutableStateOf(false) }
@@ -99,10 +101,15 @@ fun ExpenseEditScreen(
 
     var receiptLocalUri by rememberSaveable { mutableStateOf<String?>(null) }
 
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     // Validation
     val amount = amountText.toDoubleOrNull()
     val amountError = amount == null || amount <= 0.0
-    val canSave = title.isNotBlank() && !amountError
+
+    val titleError = titleTouched && title.isBlank()
+    val canSave = !titleError && !amountError
+
 
     val doSave: () -> Unit = save@{
         if (!canSave) return@save
@@ -170,20 +177,10 @@ fun ExpenseEditScreen(
                 ) {
                     if (expenseId != null) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    val toDelete = existing ?: Expense(
-                                        id = expenseId,
-                                        title = if (title.isBlank()) "-" else title,
-                                        amount = amount ?: 0.0,
-                                        status = status
-                                    )
-                                    viewModel.delete(toDelete)
-                                    onDone()
-                                }
-                            }
+                            onClick = { showDeleteConfirm = true }
                         ) { Text("Delete") }
                     }
+
                     Button(
                         onClick = { doSave() },
                         enabled = canSave,
@@ -202,15 +199,26 @@ fun ExpenseEditScreen(
             // Title
             OutlinedTextField(
                 value = title,
-                onValueChange = { title = it },
+                onValueChange = {
+                    title = it
+                    if (!titleTouched) titleTouched = true
+                },
                 label = { Text("Title") },
+                isError = titleError,
+                supportingText = {
+                    if (titleError) Text("Title can’t be empty")
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(
-                    onNext = { focus.moveFocus(FocusDirection.Down) }
+                    onNext = {
+                        if (!titleTouched) titleTouched = true
+                        focus.moveFocus(FocusDirection.Down)
+                    }
                 )
             )
+
             Spacer(Modifier.height(12.dp))
 
             // Amount
@@ -343,6 +351,36 @@ fun ExpenseEditScreen(
 
             Spacer(Modifier.height(80.dp)) // breathing room above bottom bar
         }
+    }
+
+    if (showDeleteConfirm && expenseId != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete expense") },
+            text = { Text("Are you sure you want to delete this expense? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        scope.launch {
+                            val toDelete = existing ?: Expense(
+                                id = expenseId,
+                                title = if (title.isBlank()) "-" else title,
+                                amount = amount ?: 0.0,
+                                status = status
+                            )
+                            viewModel.delete(toDelete)
+                            onDone()
+                        }
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

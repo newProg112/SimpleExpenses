@@ -210,4 +210,8 @@ class MileageViewModel(
             hasReceipt = !uri.isNullOrBlank()
         )
     }
+
+    fun onReceiptCleared() {
+        onReceiptSelected(null)
+    }
 }

@@ -1,6 +1,8 @@
 package com.example.simpleexpenses.ui
 
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.health.connect.datatypes.ExerciseRoute
 import android.location.Location
 import android.net.Uri
@@ -14,12 +16,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -37,15 +46,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import coil.compose.AsyncImage
 import com.example.simpleexpenses.data.MileageClaim
 import com.example.simpleexpenses.data.MileageEntry
 import com.example.simpleexpenses.data.VehicleType
 import com.example.simpleexpenses.network.CrowFliesRoutesRepository
 import com.example.simpleexpenses.network.LatLng
 import kotlinx.coroutines.launch
+import java.io.File
 import java.lang.ProcessBuilder.Redirect.to
 import java.text.NumberFormat
 import java.time.Instant
@@ -86,6 +102,15 @@ fun MileageEditScreen(
     var note by remember { mutableStateOf("") }
     var showVehicleMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            val uri = saveBitmap(context, bitmap)
+            vm.onReceiptSelected(uri.toString())
+        }
+    }
 
     // System picker for image/PDF receipt
     val pickReceipt = rememberLauncherForActivityResult(
@@ -130,8 +155,8 @@ fun MileageEditScreen(
                     .toInstant().toEpochMilli()
                 vm.onDateChanged(epoch)
 
-                // Translate distanceMeters -> miles for HMRC calc
-                val miles = e.distanceMeters / 1609.344
+                // Translate distanceMeters -> miles for HMRC calc, rounded to 1 decimal
+                val miles = (e.distanceMeters / 1609.344 * 10.0).roundToInt() / 10.0
                 vm.onMilesChanged(miles)
 
                 // Notes
@@ -196,14 +221,15 @@ fun MileageEditScreen(
 
             // Miles (drives live HMRC calc via VM)
             OutlinedTextField(
-                value = if (ui.miles == 0.0) "" else ui.miles.toString(),
+                value = if (ui.miles == 0.0) "" else String.format("%.1f", ui.miles),
                 onValueChange = { text ->
                     val miles = text.toDoubleOrNull() ?: 0.0
                     vm.onMilesChanged(miles)
                 },
                 label = { Text("Distance (miles)") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
             )
 
             // Passengers
@@ -212,7 +238,8 @@ fun MileageEditScreen(
                 onValueChange = { t -> vm.onPassengersChanged(t.toIntOrNull() ?: 0) },
                 label = { Text("Passengers") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
             // Vehicle selector (Dropdown)
@@ -253,16 +280,69 @@ fun MileageEditScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            if (ui.receiptUri != null) {
+                val uri = Uri.parse(ui.receiptUri)
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Column(Modifier.padding(8.dp)) {
+
+                        Text("Attachment", style = MaterialTheme.typography.titleMedium)
+
+                        if (uri.toString().lowercase().endsWith(".pdf")) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp)
+                                    .clickable {
+                                        openFile(context, uri)
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                                Text("Open PDF", modifier = Modifier.padding(start = 8.dp))
+                            }
+                        } else {
+                            AsyncImage(
+                                model = uri,
+                                contentDescription = "Receipt",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { vm.onReceiptCleared() }
+                        ) { Text("Remove attachment") }
+                    }
+                }
+            }
+
             // Live total from HMRC calc
             Text(
                 text = "Estimated reimbursement: $poundsString",
                 style = MaterialTheme.typography.titleMedium
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Button(onClick = { pickReceipt.launch(arrayOf("image/*", "application/pdf")) }) {
                     Text(if (ui.hasReceipt) "Replace receipt" else "Attach receipt")
                 }
+
+                Button(onClick = { cameraLauncher.launch(null) }) {
+                    Text("Take photo")
+                }
+
                 if (ui.hasReceipt && ui.receiptUri != null) {
                     OutlinedButton(onClick = { openReceipt(ui.receiptUri!!) }) {
                         Text("View receipt")
@@ -271,9 +351,11 @@ fun MileageEditScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val canSave = ui.miles > 0.0 || (editId != null && ui.receiptUri != null)
+
                 Button(
                     onClick = {
-                        // Fold From/To into note if provided
+                        // Build route suffix from From/To
                         val suffix = buildString {
                             if (from.isNotBlank() || to.isNotBlank()) {
                                 append("Route: ")
@@ -282,10 +364,21 @@ fun MileageEditScreen(
                                 append(if (to.isNotBlank()) to else "?")
                             }
                         }
-                        val finalNote =
-                            listOf(note.trim(), suffix.trim())
-                                .filter { it.isNotEmpty() }
-                                .joinToString(" — ")
+
+                        val baseNote = note.trim()
+
+                        val finalNote = if (suffix.isBlank()) {
+                            baseNote
+                        } else {
+                            // If note already includes this exact route, don't add it again
+                            if (baseNote.contains(suffix)) {
+                                baseNote
+                            } else if (baseNote.isBlank()) {
+                                suffix
+                            } else {
+                                "$baseNote — $suffix"
+                            }
+                        }
 
                         vm.onNoteChanged(finalNote)
                         vm.saveClaim(editId, from, to)
@@ -295,7 +388,7 @@ fun MileageEditScreen(
                         onDone()
                     },
                     enabled = (ui.miles > 0 && from.isNotBlank() && to.isNotBlank())
-                            || ui.receiptUri != null // allow re-saving when attaching/removing receipt
+                            || ui.receiptUri != null
                 ) {
                     Text("Save")
                 }
@@ -322,4 +415,20 @@ fun MileageEditScreen(
             }
         }
     }
+}
+
+fun saveBitmap(context: Context, bitmap: Bitmap): Uri {
+    val filename = "mileage_${System.currentTimeMillis()}.jpg"
+    val out = context.openFileOutput(filename, Context.MODE_PRIVATE)
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+    out.close()
+    return File(context.filesDir, filename).toUri()
+}
+
+private fun openFile(context: Context, uri: Uri) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(intent)
 }
