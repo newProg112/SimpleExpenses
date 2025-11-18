@@ -161,6 +161,25 @@ class MileageViewModel(
         }
 
     @RequiresApi(Build.VERSION_CODES.O)
+    fun duplicateClaim(id: Long) = viewModelScope.launch {
+        // Load the existing entry by id
+        val existing = dao.observeById(id).firstOrNull() ?: return@launch
+
+        // Create a new entry based on the existing one, but:
+        // - id = 0L so Room inserts a new row
+        // - date = today
+        // - clear any receipt (user can attach a fresh one)
+        val newEntry = existing.copy(
+            id = 0L,
+            date = java.time.LocalDate.now(),
+            receiptUri = null,
+            hasReceipt = false
+        )
+
+        dao.upsert(newEntry)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
     fun totalPenceInMonth(year: Int, month: Int) =
         dao.observeTotalPenceInRange(
             LocalDate.of(year, month, 1),

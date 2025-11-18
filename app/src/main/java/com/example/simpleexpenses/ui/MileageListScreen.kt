@@ -1,5 +1,6 @@
 package com.example.simpleexpenses.ui
 
+import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
@@ -7,9 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -24,6 +28,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,11 +39,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -122,6 +131,9 @@ fun MileageListScreen(
 
     var toDeleteId by remember { mutableStateOf<Long?>(null) }
 
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -201,6 +213,7 @@ fun MileageListScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddClick) { Text("+") }
         }
@@ -245,19 +258,29 @@ fun MileageListScreen(
                             )
                         },
                         trailingContent = {
+                            val context = LocalContext.current
+                            val receiptUri = e.receiptUri
+
+                            // MIME-aware PDF detection, same pattern as ExpenseListScreen
+                            val isPdf = remember(receiptUri) {
+                                receiptUri?.let { uriString ->
+                                    val t = runCatching {
+                                        context.contentResolver.getType(Uri.parse(uriString))
+                                    }.getOrNull()
+                                    t == "application/pdf" || uriString.endsWith(".pdf", ignoreCase = true)
+                                } ?: false
+                            }
+
                             Row(verticalAlignment = Alignment.CenterVertically) {
 
-                                if (e.hasReceipt) {
-                                    val isPdf = e.receiptUri?.lowercase()?.endsWith(".pdf") == true
-
+                                if (!receiptUri.isNullOrBlank()) {
                                     Icon(
-                                        imageVector = if (isPdf)
-                                            Icons.Outlined.PictureAsPdf
-                                        else
-                                            Icons.Outlined.Image,
-                                        contentDescription = "Attachment",
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        tint = MaterialTheme.colorScheme.primary
+                                        imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
+                                        contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
+                                        tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .padding(end = 6.dp)
+                                            .size(18.dp)
                                     )
                                 }
 
@@ -265,6 +288,15 @@ fun MileageListScreen(
                                     currency.format(e.amountPence / 100.0),
                                     modifier = Modifier.padding(end = 4.dp)
                                 )
+
+                                TextButton(onClick = {
+                                    vm.duplicateClaim(e.id)
+                                    scope.launch {
+                                        snackbar.showSnackbar("Claim duplicated")
+                                    }
+                                }) {
+                                    Text("Duplicate")
+                                }
 
                                 IconButton(onClick = { toDeleteId = e.id }) {
                                     Icon(

@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.AlertDialog
@@ -35,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -181,12 +184,81 @@ fun MileageEditScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            Surface(tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDone,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+
+                    val canSave =
+                        (ui.miles > 0 && from.isNotBlank() && to.isNotBlank()) ||
+                                ui.receiptUri != null
+
+                    Button(
+                        onClick = {
+                            // Build route suffix from From/To
+                            val suffix = buildString {
+                                if (from.isNotBlank() || to.isNotBlank()) {
+                                    append("Route: ")
+                                    append(if (from.isNotBlank()) from else "?")
+                                    append(" → ")
+                                    append(if (to.isNotBlank()) to else "?")
+                                }
+                            }
+
+                            val baseNote = note.trim()
+
+                            val finalNote = if (suffix.isBlank()) {
+                                baseNote
+                            } else {
+                                // If note already includes this exact route, don't add it again
+                                if (baseNote.contains(suffix)) {
+                                    baseNote
+                                } else if (baseNote.isBlank()) {
+                                    suffix
+                                } else {
+                                    "$baseNote — $suffix"
+                                }
+                            }
+
+                            vm.onNoteChanged(finalNote)
+                            vm.saveClaim(editId, from, to)
+                            Toast
+                                .makeText(
+                                    context,
+                                    "Mileage saved",
+                                    Toast.LENGTH_SHORT
+                                )
+                                .show()
+                            onDone()
+                        },
+                        enabled = canSave,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
         }
     ) { pad ->
+        val scrollState = rememberScrollState()
+
         Column(
             Modifier
                 .padding(pad)
                 .padding(16.dp)
+                .verticalScroll(scrollState)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -282,6 +354,14 @@ fun MileageEditScreen(
 
             if (ui.receiptUri != null) {
                 val uri = Uri.parse(ui.receiptUri)
+                val context = LocalContext.current
+
+                // Detect PDF using MIME type OR file extension as a fallback
+                val isPdf = remember(uri) {
+                    val type = context.contentResolver.getType(uri)
+                    type == "application/pdf" ||
+                            ui.receiptUri?.lowercase()?.endsWith(".pdf") == true
+                }
 
                 Card(
                     modifier = Modifier
@@ -292,23 +372,27 @@ fun MileageEditScreen(
 
                         Text("Attachment", style = MaterialTheme.typography.titleMedium)
 
-                        if (uri.toString().lowercase().endsWith(".pdf")) {
+                        if (isPdf) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(8.dp)
-                                    .clickable {
-                                        openFile(context, uri)
-                                    },
+                                    .clickable { openFile(context, uri) },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                                Text("Open PDF", modifier = Modifier.padding(start = 8.dp))
+                                Icon(
+                                    imageVector = Icons.Outlined.PictureAsPdf,
+                                    contentDescription = "PDF receipt"
+                                )
+                                Text(
+                                    text = "Open PDF",
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
                             }
                         } else {
                             AsyncImage(
                                 model = uri,
-                                contentDescription = "Receipt",
+                                contentDescription = "Receipt image",
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(180.dp)
@@ -317,9 +401,9 @@ fun MileageEditScreen(
                             )
                         }
 
-                        TextButton(
-                            onClick = { vm.onReceiptCleared() }
-                        ) { Text("Remove attachment") }
+                        TextButton(onClick = { vm.onReceiptCleared() }) {
+                            Text("Remove attachment")
+                        }
                     }
                 }
             }
@@ -347,50 +431,6 @@ fun MileageEditScreen(
                     OutlinedButton(onClick = { openReceipt(ui.receiptUri!!) }) {
                         Text("View receipt")
                     }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                val canSave = ui.miles > 0.0 || (editId != null && ui.receiptUri != null)
-
-                Button(
-                    onClick = {
-                        // Build route suffix from From/To
-                        val suffix = buildString {
-                            if (from.isNotBlank() || to.isNotBlank()) {
-                                append("Route: ")
-                                append(if (from.isNotBlank()) from else "?")
-                                append(" → ")
-                                append(if (to.isNotBlank()) to else "?")
-                            }
-                        }
-
-                        val baseNote = note.trim()
-
-                        val finalNote = if (suffix.isBlank()) {
-                            baseNote
-                        } else {
-                            // If note already includes this exact route, don't add it again
-                            if (baseNote.contains(suffix)) {
-                                baseNote
-                            } else if (baseNote.isBlank()) {
-                                suffix
-                            } else {
-                                "$baseNote — $suffix"
-                            }
-                        }
-
-                        vm.onNoteChanged(finalNote)
-                        vm.saveClaim(editId, from, to)
-                        android.widget.Toast
-                            .makeText(context, "Mileage saved", android.widget.Toast.LENGTH_SHORT)
-                            .show()
-                        onDone()
-                    },
-                    enabled = (ui.miles > 0 && from.isNotBlank() && to.isNotBlank())
-                            || ui.receiptUri != null
-                ) {
-                    Text("Save")
                 }
             }
 
