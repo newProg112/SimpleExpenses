@@ -68,16 +68,33 @@ object ExportCsv {
 
     /** Full export: Expenses + Mileage, using your Expense model (amount is a Double in £). */
     @RequiresApi(Build.VERSION_CODES.O)
-    fun buildFromExpensesAndMileage(expenses: List<Expense>, mileage: List<MileageEntry>): String {
+    fun buildFromExpensesAndMileage(
+        expenses: List<Expense>,
+        mileage: List<MileageEntry>
+    ): String {
         val sb = StringBuilder()
 
         // --- Expenses section ---
         sb.appendLine("# Expenses")
-        sb.appendLine("date,category,title,merchant,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes")
+        sb.appendLine(
+            "date,category,title,merchant,net_gbp,vat_gbp,gross_gbp,vat_rate_percent,net_pence,vat_pence,gross_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes"
+        )
+
         expenses.forEach { e ->
-            val date = LocalDate.ofInstant(Instant.ofEpochMilli(e.timestamp), ZoneId.systemDefault())
+            val date = LocalDate.ofInstant(
+                Instant.ofEpochMilli(e.timestamp),
+                ZoneId.systemDefault()
+            )
+
             val gross = e.amount
-            val net = gross / 1.20
+            val ratePercent = e.vatRatePercent       // 👈 per-expense VAT rate
+            val rate = ratePercent / 100.0
+
+            val net = if (rate == 0.0) {
+                gross
+            } else {
+                gross / (1.0 + rate)
+            }
             val vat = gross - net
 
             val grossPence = (gross * 100).roundToInt()
@@ -91,12 +108,15 @@ object ExportCsv {
                     esc(e.title),
                     esc(e.merchant),
 
-                    // NEW: Net / VAT / Gross (formatted)
+                    // Net / VAT / Gross (formatted)
                     currency.format(net),
                     currency.format(vat),
                     currency.format(gross),
 
-                    // NEW: Pence versions
+                    // NEW column: vat_rate_percent
+                    ratePercent.toString(),
+
+                    // Pence versions
                     netPence.toString(),
                     vatPence.toString(),
                     grossPence.toString(),
@@ -110,11 +130,14 @@ object ExportCsv {
                 ).joinToString(",")
             )
         }
+
         sb.appendLine()
 
-        // --- Mileage section (with NET / VAT / GROSS) ---
+        // --- Mileage section (still uses fixed 20% VAT on mileage amounts) ---
         sb.appendLine("# Mileage")
-        sb.appendLine("date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes")
+        sb.appendLine(
+            "date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes"
+        )
 
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
@@ -136,12 +159,12 @@ object ExportCsv {
                     miles.toString(),
                     m.ratePencePerMile.toString(),
 
-                    // NEW: Net / VAT / Gross (GBP)
+                    // Net / VAT / Gross (GBP)
                     currency.format(net),
                     currency.format(vat),
                     currency.format(gross),
 
-                    // NEW: Net / VAT / Gross (pence)
+                    // Net / VAT / Gross (pence)
                     netPence.toString(),
                     vatPence.toString(),
                     grossPence.toString(),

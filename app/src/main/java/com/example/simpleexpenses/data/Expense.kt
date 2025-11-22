@@ -16,5 +16,6 @@ data class Expense(
     val reimbursable: Boolean = true,
     val paymentMethod: String = "Personal", // keep String to avoid converters for now
     val hasReceipt: Boolean = false,
-    val receiptUri: String? = null
+    val receiptUri: String? = null,
+    val vatRatePercent: Int = 20, // default to 20% for existing rows
 )

@@ -110,6 +110,7 @@ fun ExpenseEditScreen(
     val titleError = titleTouched && title.isBlank()
     val canSave = !titleError && !amountError
 
+    var vatRatePercent by rememberSaveable { mutableStateOf(20) }
 
     val doSave: () -> Unit = save@{
         if (!canSave) return@save
@@ -129,7 +130,8 @@ fun ExpenseEditScreen(
                 reimbursable = reimbursable,
                 paymentMethod = paymentMethod,
                 receiptUri = receiptLocalUri,
-                hasReceipt = !receiptLocalUri.isNullOrBlank()
+                hasReceipt = !receiptLocalUri.isNullOrBlank(),
+                vatRatePercent = vatRatePercent
             )
             if (existing == null) viewModel.add(updated) else viewModel.update(updated)
             onDone()
@@ -150,6 +152,7 @@ fun ExpenseEditScreen(
                 reimbursable = e.reimbursable
                 paymentMethod = e.paymentMethod
                 receiptLocalUri = e.receiptUri
+                vatRatePercent = e.vatRatePercent
             }
         }
     }
@@ -231,7 +234,7 @@ fun ExpenseEditScreen(
                     if (amountError) {
                         Text("Enter a number > 0, e.g. 4.50")
                     } else {
-                        Text("Treated as gross (includes 20% VAT). Breakdown shown below.")
+                        Text("Treated as gross (includes ${vatRatePercent}% VAT). Breakdown shown below.")
                     }
                 },
                 singleLine = true,
@@ -248,15 +251,47 @@ fun ExpenseEditScreen(
                 )
             )
 
-// VAT breakdown (assume 20% VAT, amountText = gross)
-            val vatRate = 0.20
+            // VAT RATE SELECTOR
+            val vatOptions = listOf(0, 5, 20)
+            var rateExpanded by remember { mutableStateOf(false) }
+
+            ExposedDropdownMenuBox(
+                expanded = rateExpanded,
+                onExpandedChange = { rateExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = "$vatRatePercent%",
+                    onValueChange = {},
+                    label = { Text("VAT rate") },
+                    readOnly = true,
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = rateExpanded,
+                    onDismissRequest = { rateExpanded = false }
+                ) {
+                    vatOptions.forEach { rate ->
+                        DropdownMenuItem(
+                            text = { Text("$rate%") },
+                            onClick = {
+                                vatRatePercent = rate
+                                rateExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            val vatRate = vatRatePercent / 100.0
             val grossAmount = amountText.replace(",", "").toDoubleOrNull()
             val netAmount = grossAmount?.let { it / (1.0 + vatRate) }
             val vatAmount = if (grossAmount != null && netAmount != null) {
                 grossAmount - netAmount
-            } else {
-                null
-            }
+            } else null
 
             val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
 
@@ -266,7 +301,7 @@ fun ExpenseEditScreen(
                 OutlinedTextField(
                     value = currency.format(netAmount),
                     onValueChange = { },
-                    label = { Text("Net (20% VAT)") },
+                    label = { Text("Net (${vatRatePercent}% VAT)") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = false,
                     readOnly = true
@@ -275,7 +310,7 @@ fun ExpenseEditScreen(
                 OutlinedTextField(
                     value = currency.format(vatAmount),
                     onValueChange = { },
-                    label = { Text("VAT") },
+                    label = { Text("VAT (${vatRatePercent}%)") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = false,
                     readOnly = true

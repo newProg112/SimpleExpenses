@@ -24,14 +24,45 @@ object ExportUtils {
         val file = File(context.cacheDir, "expenses-$stamp.csv")
 
         file.bufferedWriter().use { w ->
-            w.appendLine("Date,Title,Amount,Status")
+            // Header row
+            w.appendLine(
+                "Date,Title,Category,Merchant,Net,VAT,Gross,VAT rate (%),Status,Reimbursable,Payment method,Has receipt"
+            )
+
             items.forEach { e ->
                 val dateStr = dateFormat.format(Date(e.timestamp))
-                val amountStr = String.format(Locale.UK, "%.2f", e.amount)
+
+                // Treat stored amount as GROSS
+                val gross = e.amount
+                val ratePercent = e.vatRatePercent
+                val rate = ratePercent / 100.0
+
+                val net = if (rate == 0.0) {
+                    gross
+                } else {
+                    gross / (1.0 + rate)
+                }
+                val vat = gross - net
+
+                val netStr = String.format(Locale.UK, "%.2f", net)
+                val vatStr = String.format(Locale.UK, "%.2f", vat)
+                val grossStr = String.format(Locale.UK, "%.2f", gross)
+
+                val reimbursableStr = if (e.reimbursable) "Yes" else "No"
+                val hasReceiptStr = if (e.hasReceipt) "Yes" else "No"
+
                 w.append(csvEscape(dateStr)).append(',')
                     .append(csvEscape(e.title)).append(',')
-                    .append(csvEscape(amountStr)).append(',')
-                    .append(csvEscape(e.status.name))
+                    .append(csvEscape(e.category)).append(',')
+                    .append(csvEscape(e.merchant.orEmpty())).append(',')
+                    .append(csvEscape(netStr)).append(',')
+                    .append(csvEscape(vatStr)).append(',')
+                    .append(csvEscape(grossStr)).append(',')
+                    .append(csvEscape(ratePercent.toString())).append(',')
+                    .append(csvEscape(e.status.name)).append(',')
+                    .append(csvEscape(reimbursableStr)).append(',')
+                    .append(csvEscape(e.paymentMethod)).append(',')
+                    .append(csvEscape(hasReceiptStr))
                     .appendLine()
             }
         }
