@@ -377,394 +377,455 @@ fun ExpenseListScreen(
                 onClear = viewModel::clearFilters
             )
 
-            LazyColumn(Modifier.fillMaxSize()) {
-                // Summary at the top
-                stickyHeader {
-                    // Surface avoids transparency when stuck
-                    Surface(tonalElevation = 2.dp) {
-                        Column {
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                singleLine = true,
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Filled.Search,
-                                        contentDescription = null
+            if (displayedExpenses.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "No expenses yet",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Tap + to add your first expense.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    // Summary at the top
+                    stickyHeader {
+                        // Surface avoids transparency when stuck
+                        Surface(tonalElevation = 2.dp) {
+                            Column {
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    singleLine = true,
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Search,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (query.isNotBlank()) {
+                                            IconButton(onClick = { query = "" }) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                            }
+                                        }
+                                    },
+                                    placeholder = { Text("Search expenses") },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = sort == SortOption.RECENT,
+                                        onClick = { sort = SortOption.RECENT },
+                                        label = { Text("Recent") }
                                     )
-                                },
-                                trailingIcon = {
-                                    if (query.isNotBlank()) {
-                                        IconButton(onClick = { query = "" }) {
-                                            Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                    FilterChip(
+                                        selected = sort == SortOption.OLDEST,
+                                        onClick = { sort = SortOption.OLDEST },
+                                        label = { Text("Oldest") }
+                                    )
+                                    FilterChip(
+                                        selected = sort == SortOption.AMOUNT_ASC,
+                                        onClick = { sort = SortOption.AMOUNT_ASC },
+                                        label = { Text("Amount ↑") }
+                                    )
+                                    FilterChip(
+                                        selected = sort == SortOption.AMOUNT_DESC,
+                                        onClick = { sort = SortOption.AMOUNT_DESC },
+                                        label = { Text("Amount ↓") }
+                                    )
+                                }
+
+                                // Compact filter row
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Category = single chip that opens a dropdown
+                                    FilterChip(
+                                        selected = selectedCategory != null,
+                                        onClick = { catMenuExpanded = true },
+                                        label = { Text(selectedCategory ?: "Category") },
+                                        trailingIcon = {
+                                            Icon(
+                                                Icons.Filled.ArrowDropDown,
+                                                contentDescription = null
+                                            )
+                                        }
+                                    )
+                                    DropdownMenu(
+                                        expanded = catMenuExpanded,
+                                        onDismissRequest = { catMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("All categories") },
+                                            onClick = {
+                                                viewModel.setCategory(null)
+                                                catMenuExpanded = false
+                                            }
+                                        )
+                                        categoryOptions.forEach { c ->
+                                            DropdownMenuItem(
+                                                text = { Text(c) },
+                                                onClick = {
+                                                    viewModel.setCategory(c)
+                                                    catMenuExpanded = false
+                                                }
+                                            )
                                         }
                                     }
-                                },
-                                placeholder = { Text("Search expenses") },
-                                shape = RoundedCornerShape(12.dp)
-                            )
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilterChip(
-                                    selected = sort == SortOption.RECENT,
-                                    onClick = { sort = SortOption.RECENT },
-                                    label = { Text("Recent") }
-                                )
-                                FilterChip(
-                                    selected = sort == SortOption.OLDEST,
-                                    onClick = { sort = SortOption.OLDEST },
-                                    label = { Text("Oldest") }
-                                )
-                                FilterChip(
-                                    selected = sort == SortOption.AMOUNT_ASC,
-                                    onClick = { sort = SortOption.AMOUNT_ASC },
-                                    label = { Text("Amount ↑") }
-                                )
-                                FilterChip(
-                                    selected = sort == SortOption.AMOUNT_DESC,
-                                    onClick = { sort = SortOption.AMOUNT_DESC },
-                                    label = { Text("Amount ↓") }
+                                    val activeFilters = listOfNotNull(
+                                        selectedCategory?.let { "cat" },
+                                        if (reimbursableOnly) "reimb" else null,
+                                        paymentFilter // "Personal" / "CompanyCard" or null
+                                    ).size
+
+
+                                    AssistChip(
+                                        onClick = { showMoreFilters = !showMoreFilters },
+                                        label = { Text(if (activeFilters > 0) "Filters ($activeFilters)" else "Filters") },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.Tune,
+                                                contentDescription = null
+                                            )
+                                        }
+                                    )
+
+                                    if (activeFilters > 0) {
+                                        AssistChip(
+                                            onClick = {
+                                                viewModel.setCategory(null)
+                                                reimbursableOnly = false
+                                                paymentFilter = null
+                                            },
+                                            label = { Text("Clear") }
+                                        )
+                                    }
+
+                                }
+
+                                // Extra filters collapse down when not needed
+                                AnimatedVisibility(visible = showMoreFilters) {
+                                    val categories = listOf(
+                                        "General",
+                                        "Travel",
+                                        "Meals",
+                                        "Supplies",
+                                        "Software",
+                                        "Training",
+                                        "Other"
+                                    )
+
+                                    FlowRow(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = reimbursableOnly,
+                                            onClick = { reimbursableOnly = !reimbursableOnly },
+                                            label = { Text("Reimbursable only") }
+                                        )
+                                        FilterChip(
+                                            selected = paymentFilter == "Personal",
+                                            onClick = {
+                                                paymentFilter =
+                                                    if (paymentFilter == "Personal") null else "Personal"
+                                            },
+                                            label = { Text("Personal") }
+                                        )
+                                        FilterChip(
+                                            selected = paymentFilter == "CompanyCard",
+                                            onClick = {
+                                                paymentFilter =
+                                                    if (paymentFilter == "CompanyCard") null else "CompanyCard"
+                                            },
+                                            label = { Text("Company card") }
+                                        )
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+
+                    item {
+                        SummarySection(
+                            submittedTotal = submittedTotal,
+                            approvedTotal = approvedTotal,
+                            paidTotal = paidTotal,
+                            submittedCount = submittedCount,
+                            approvedCount = approvedCount,
+                            paidCount = paidCount,
+                            selected = selectedStatus,
+                            onCardClick = { status ->
+                                if (selectedStatus == status) viewModel.setStatus(null) else viewModel.setStatus(
+                                    status
                                 )
                             }
+                        )
+                    }
 
-                            // Compact filter row
+                    if (query.isNotBlank()) {
+                        item {
+                            Text(
+                                text = "Showing ${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
+                            )
+                        }
+                    }
+
+                    // Show a clear-filter chip when a status is selected
+                    if (selectedStatus != null) {
+                        item {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Category = single chip that opens a dropdown
-                                FilterChip(
-                                    selected = selectedCategory != null,
-                                    onClick = { catMenuExpanded = true },
-                                    label = { Text(selectedCategory ?: "Category") },
-                                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) }
+                                Text(
+                                    text = "Filtered: " + selectedStatus!!.name.lowercase()
+                                        .replaceFirstChar { it.titlecase() },
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
-                                DropdownMenu(
-                                    expanded = catMenuExpanded,
-                                    onDismissRequest = { catMenuExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("All categories") },
-                                        onClick = {
-                                            viewModel.setCategory(null)
-                                            catMenuExpanded = false
-                                        }
-                                    )
-                                    categoryOptions.forEach { c ->
-                                        DropdownMenuItem(
-                                            text = { Text(c) },
-                                            onClick = {
-                                                viewModel.setCategory(c)
-                                                catMenuExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-
-                                val activeFilters = listOfNotNull(
-                                    selectedCategory?.let { "cat" },
-                                    if (reimbursableOnly) "reimb" else null,
-                                    paymentFilter // "Personal" / "CompanyCard" or null
-                                ).size
-
-
                                 AssistChip(
-                                    onClick = { showMoreFilters = !showMoreFilters },
-                                    label = { Text(if (activeFilters > 0) "Filters ($activeFilters)" else "Filters") },
-                                    leadingIcon = { Icon(Icons.Filled.Tune, contentDescription = null) }
-                                )
-
-                                if (activeFilters > 0) {
-                                    AssistChip(
-                                        onClick = {
-                                            viewModel.setCategory(null)
-                                            reimbursableOnly = false
-                                            paymentFilter = null
-                                        },
-                                        label = { Text("Clear") }
-                                    )
-                                }
-
-                            }
-
-                            // Extra filters collapse down when not needed
-                            AnimatedVisibility(visible = showMoreFilters) {
-                                val categories = listOf("General","Travel","Meals","Supplies","Software","Training","Other")
-
-                                FlowRow(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    FilterChip(
-                                        selected = reimbursableOnly,
-                                        onClick = { reimbursableOnly = !reimbursableOnly },
-                                        label = { Text("Reimbursable only") }
-                                    )
-                                    FilterChip(
-                                        selected = paymentFilter == "Personal",
-                                        onClick = { paymentFilter = if (paymentFilter == "Personal") null else "Personal" },
-                                        label = { Text("Personal") }
-                                    )
-                                    FilterChip(
-                                        selected = paymentFilter == "CompanyCard",
-                                        onClick = { paymentFilter = if (paymentFilter == "CompanyCard") null else "CompanyCard" },
-                                        label = { Text("Company card") }
-                                    )
-                                }
-                            }
-
-                        }
-                    }
-                }
-
-                item {
-                    SummarySection(
-                        submittedTotal = submittedTotal,
-                        approvedTotal = approvedTotal,
-                        paidTotal = paidTotal,
-                        submittedCount = submittedCount,
-                        approvedCount = approvedCount,
-                        paidCount = paidCount,
-                        selected = selectedStatus,
-                        onCardClick = { status ->
-                            if (selectedStatus == status) viewModel.setStatus(null) else viewModel.setStatus(status)
-                        }
-                    )
-                }
-
-                if (query.isNotBlank()) {
-                    item {
-                        Text(
-                            text = "Showing ${displayedExpenses.size} result${if (displayedExpenses.size == 1) "" else "s"}",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
-                        )
-                    }
-                }
-
-                // Show a clear-filter chip when a status is selected
-                if (selectedStatus != null) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Filtered: " + selectedStatus!!.name.lowercase()
-                                    .replaceFirstChar { it.titlecase() },
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            AssistChip(
-                                onClick = { viewModel.setStatus(null) },
-                                label = { Text("Clear filter") },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        contentDescription = null
-                                    )
-                                }
-                            )
-                        }
-                        Divider()
-                    }
-                }
-
-                items(
-                    items = displayedExpenses,
-                    key = { it.id }
-                ) { e: Expense ->
-
-                    // Show confirm for Paid only
-                    var showConfirm by remember { mutableStateOf(false) }
-                    // Defer deletion so we don't mutate state inside confirm callback
-                    var pendingDelete by remember { mutableStateOf(false) }
-
-                    // One place to perform delete + snackbar + undo + haptics
-                    val onDelete: () -> Unit = {
-                        scope.launch {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.delete(e)
-                            val res = snackbarHostState.showSnackbar(
-                                message = "Deleted '${e.title}'",
-                                actionLabel = "Undo",
-                                withDismissAction = true,
-                                duration = SnackbarDuration.Short
-                            )
-                            if (res == SnackbarResult.ActionPerformed) {
-                                viewModel.add(e)
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                        }
-                    }
-
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { target ->
-                            when (target) {
-                                SwipeToDismissBoxValue.EndToStart,
-                                SwipeToDismissBoxValue.StartToEnd -> {
-                                    if (e.status == ExpenseStatus.Paid) {
-                                        // Guard: confirm before deleting Paid items
-                                        showConfirm = true
-                                        false // don't allow the dismiss to complete
-                                    } else {
-                                        // Defer deletion to a LaunchedEffect
-                                        pendingDelete = true
-                                        true  // allow the dismiss animation
-                                    }
-                                }
-                                else -> false
-                            }
-                        }
-                    )
-
-                    // Perform the delete AFTER confirmValueChange, safely
-                    LaunchedEffect(pendingDelete) {
-                        if (pendingDelete) {
-                            pendingDelete = false
-                            onDelete()
-                        }
-                    }
-
-                    // The swipe container (same background/content as before)
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        backgroundContent = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.errorContainer)
-                                    .padding(horizontal = 24.dp),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                    ) {
-                        ListItem(
-                            overlineContent = {
-                                val parts = buildList {
-                                    if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
-                                    add(e.category)
-                                    if (!e.reimbursable) add("Not reimbursable")
-                                    add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
-                                }
-                                Text(parts.joinToString(" • "))
-                            },
-                            headlineContent = { Text(e.title) },
-                            supportingContent = { Text("£${"%.2f".format(e.amount)}") },
-                            trailingContent = {
-                                // NEW: show a small badge for receipt type
-                                val context = LocalContext.current
-                                val receiptUri = e.receiptUri
-                                val isPdf = remember(receiptUri) {
-                                    receiptUri?.let {
-                                        // MIME check, with safe fallback to .pdf extension
-                                        val t = runCatching { context.contentResolver.getType(Uri.parse(it)) }.getOrNull()
-                                        t == "application/pdf" || it.endsWith(".pdf", ignoreCase = true)
-                                    } ?: false
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    if (!receiptUri.isNullOrBlank()) {
+                                    onClick = { viewModel.setStatus(null) },
+                                    label = { Text("Clear filter") },
+                                    leadingIcon = {
                                         Icon(
-                                            imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
-                                            contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
-                                            tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
+                                            Icons.Filled.Close,
+                                            contentDescription = null
                                         )
                                     }
+                                )
+                            }
+                            Divider()
+                        }
+                    }
 
-                                    // keep your existing chip
-                                    com.example.simpleexpenses.ui.components.StatusChip(e.status)
+                    items(
+                        items = displayedExpenses,
+                        key = { it.id }
+                    ) { e: Expense ->
 
-                                    IconButton(onClick = { menuForId = e.id }) {
-                                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        // Show confirm for Paid only
+                        var showConfirm by remember { mutableStateOf(false) }
+                        // Defer deletion so we don't mutate state inside confirm callback
+                        var pendingDelete by remember { mutableStateOf(false) }
+
+                        // One place to perform delete + snackbar + undo + haptics
+                        val onDelete: () -> Unit = {
+                            scope.launch {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.delete(e)
+                                val res = snackbarHostState.showSnackbar(
+                                    message = "Deleted '${e.title}'",
+                                    actionLabel = "Undo",
+                                    withDismissAction = true,
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (res == SnackbarResult.ActionPerformed) {
+                                    viewModel.add(e)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                            }
+                        }
+
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { target ->
+                                when (target) {
+                                    SwipeToDismissBoxValue.EndToStart,
+                                    SwipeToDismissBoxValue.StartToEnd -> {
+                                        if (e.status == ExpenseStatus.Paid) {
+                                            // Guard: confirm before deleting Paid items
+                                            showConfirm = true
+                                            false // don't allow the dismiss to complete
+                                        } else {
+                                            // Defer deletion to a LaunchedEffect
+                                            pendingDelete = true
+                                            true  // allow the dismiss animation
+                                        }
                                     }
 
-                                    DropdownMenu(
-                                        expanded = menuForId == e.id,
-                                        onDismissRequest = { menuForId = null }
+                                    else -> false
+                                }
+                            }
+                        )
+
+                        // Perform the delete AFTER confirmValueChange, safely
+                        LaunchedEffect(pendingDelete) {
+                            if (pendingDelete) {
+                                pendingDelete = false
+                                onDelete()
+                            }
+                        }
+
+                        // The swipe container (same background/content as before)
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.errorContainer)
+                                        .padding(horizontal = 24.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        ) {
+                            ListItem(
+                                overlineContent = {
+                                    val parts = buildList {
+                                        if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
+                                        add(e.category)
+                                        if (!e.reimbursable) add("Not reimbursable")
+                                        add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
+                                    }
+                                    Text(parts.joinToString(" • "))
+                                },
+                                headlineContent = { Text(e.title) },
+                                supportingContent = { Text("£${"%.2f".format(e.amount)}") },
+                                trailingContent = {
+                                    // NEW: show a small badge for receipt type
+                                    val context = LocalContext.current
+                                    val receiptUri = e.receiptUri
+                                    val isPdf = remember(receiptUri) {
+                                        receiptUri?.let {
+                                            // MIME check, with safe fallback to .pdf extension
+                                            val t = runCatching {
+                                                context.contentResolver.getType(
+                                                    Uri.parse(it)
+                                                )
+                                            }.getOrNull()
+                                            t == "application/pdf" || it.endsWith(
+                                                ".pdf",
+                                                ignoreCase = true
+                                            )
+                                        } ?: false
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        fun choose(newStatus: ExpenseStatus, label: String) {
-                                            scope.launch {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                viewModel.update(e.copy(status = newStatus))
-                                                snackbarHostState.showSnackbar("Marked as $label")
-                                            }
-                                            menuForId = null
+                                        if (!receiptUri.isNullOrBlank()) {
+                                            Icon(
+                                                imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
+                                                contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
+                                                tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
                                         }
 
-                                        DropdownMenuItem(
-                                            text = { Text("Mark as Submitted") },
-                                            onClick = {
-                                                choose(
-                                                    ExpenseStatus.Submitted,
-                                                    "Submitted"
-                                                )
+                                        // keep your existing chip
+                                        com.example.simpleexpenses.ui.components.StatusChip(e.status)
+
+                                        IconButton(onClick = { menuForId = e.id }) {
+                                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                        }
+
+                                        DropdownMenu(
+                                            expanded = menuForId == e.id,
+                                            onDismissRequest = { menuForId = null }
+                                        ) {
+                                            fun choose(newStatus: ExpenseStatus, label: String) {
+                                                scope.launch {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    viewModel.update(e.copy(status = newStatus))
+                                                    snackbarHostState.showSnackbar("Marked as $label")
+                                                }
+                                                menuForId = null
                                             }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Mark as Approved") },
-                                            onClick = { choose(ExpenseStatus.Approved, "Approved") }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Mark as Paid") },
-                                            onClick = { choose(ExpenseStatus.Paid, "Paid") }
-                                        )
+
+                                            DropdownMenuItem(
+                                                text = { Text("Mark as Submitted") },
+                                                onClick = {
+                                                    choose(
+                                                        ExpenseStatus.Submitted,
+                                                        "Submitted"
+                                                    )
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Mark as Approved") },
+                                                onClick = { choose(ExpenseStatus.Approved, "Approved") }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Mark as Paid") },
+                                                onClick = { choose(ExpenseStatus.Paid, "Paid") }
+                                            )
+                                        }
                                     }
+                                },
+                                modifier = Modifier
+                                    .clickable { onEdit(e.id) }
+                                    .padding(horizontal = 8.dp)
+                            )
+                        }
+
+                        Divider()
+
+                        // Confirmation dialog for Paid
+                        if (showConfirm) {
+                            AlertDialog(
+                                onDismissRequest = { showConfirm = false },
+                                icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                title = { Text("Delete paid expense?") },
+                                text = { Text("This item is marked as Paid. Are you sure you want to delete it?") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showConfirm = false
+                                        onDelete()
+                                    }) { Text("Delete") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
                                 }
-                            },
-                            modifier = Modifier
-                                .clickable { onEdit(e.id) }
-                                .padding(horizontal = 8.dp)
-                        )
-                    }
-
-                    Divider()
-
-                    // Confirmation dialog for Paid
-                    if (showConfirm) {
-                        AlertDialog(
-                            onDismissRequest = { showConfirm = false },
-                            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                            title = { Text("Delete paid expense?") },
-                            text = { Text("This item is marked as Paid. Are you sure you want to delete it?") },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    showConfirm = false
-                                    onDelete()
-                                }) { Text("Delete") }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-
             }
         }
     }

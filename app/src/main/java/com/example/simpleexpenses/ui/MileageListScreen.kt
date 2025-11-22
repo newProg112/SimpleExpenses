@@ -4,7 +4,9 @@ import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -13,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
@@ -218,22 +221,34 @@ fun MileageListScreen(
             FloatingActionButton(onClick = onAddClick) { Text("+") }
         }
     ) { pad ->
-        Text(
-            "Debug: ${sorted.size} entries",
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier
-                .padding(pad)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        )
 
         if (sorted.isEmpty()) {
             Box(
-                Modifier
+                modifier = Modifier
                     .fillMaxSize()
-                    .padding(pad),
+                    .padding(pad)
+                    .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No mileage in $selected — tap + to add a trip")
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DirectionsCar,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "No mileage in $selected",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "Tap + to log a trip.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -261,7 +276,6 @@ fun MileageListScreen(
                             val context = LocalContext.current
                             val receiptUri = e.receiptUri
 
-                            // MIME-aware PDF detection, same pattern as ExpenseListScreen
                             val isPdf = remember(receiptUri) {
                                 receiptUri?.let { uriString ->
                                     val t = runCatching {

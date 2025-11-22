@@ -228,7 +228,11 @@ fun ExpenseEditScreen(
                 label = { Text("Amount") },
                 isError = amountError,
                 supportingText = {
-                    if (amountError) Text("Enter a number > 0, e.g. 4.50")
+                    if (amountError) {
+                        Text("Enter a number > 0, e.g. 4.50")
+                    } else {
+                        Text("Treated as gross (includes 20% VAT). Breakdown shown below.")
+                    }
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -243,6 +247,49 @@ fun ExpenseEditScreen(
                     }
                 )
             )
+
+// VAT breakdown (assume 20% VAT, amountText = gross)
+            val vatRate = 0.20
+            val grossAmount = amountText.replace(",", "").toDoubleOrNull()
+            val netAmount = grossAmount?.let { it / (1.0 + vatRate) }
+            val vatAmount = if (grossAmount != null && netAmount != null) {
+                grossAmount - netAmount
+            } else {
+                null
+            }
+
+            val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
+
+            if (grossAmount != null && netAmount != null && vatAmount != null) {
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = currency.format(netAmount),
+                    onValueChange = { },
+                    label = { Text("Net (20% VAT)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = false,
+                    readOnly = true
+                )
+
+                OutlinedTextField(
+                    value = currency.format(vatAmount),
+                    onValueChange = { },
+                    label = { Text("VAT") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = false,
+                    readOnly = true
+                )
+
+                OutlinedTextField(
+                    value = currency.format(grossAmount),
+                    onValueChange = { },
+                    label = { Text("Gross") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = false,
+                    readOnly = true
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
 

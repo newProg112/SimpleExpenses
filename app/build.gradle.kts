@@ -20,12 +20,20 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+
+            // 👇 NEW — makes the app install side-by-side
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

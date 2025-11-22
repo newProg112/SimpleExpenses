@@ -23,15 +23,24 @@ object ExportCsv {
         return "\"$q\""
     }
 
-    /** Mileage-only export (what you’re using right now). */
     @RequiresApi(Build.VERSION_CODES.O)
     fun buildMileageOnly(mileage: List<MileageEntry>): String {
         val sb = StringBuilder()
         sb.appendLine("# Mileage")
-        sb.appendLine("date,from,to,miles,rate_pence_per_mile,amount_pence,amount_gbp,notes")
+        sb.appendLine("date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes")
+
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
-            val gbp = currency.format(m.amountPence / 100.0)
+
+            // Treat amountPence as gross
+            val gross = m.amountPence / 100.0
+            val net = gross / 1.20
+            val vat = gross - net
+
+            val grossPence = m.amountPence
+            val netPence = (net * 100.0).roundToInt()
+            val vatPence = (vat * 100.0).roundToInt()
+
             sb.appendLine(
                 listOf(
                     m.date.format(dateFmt),
@@ -39,8 +48,17 @@ object ExportCsv {
                     esc(m.toLabel),
                     miles.toString(),
                     m.ratePencePerMile.toString(),
-                    m.amountPence.toString(),
-                    gbp,
+
+                    // NEW: Net / VAT / Gross (GBP)
+                    currency.format(net),
+                    currency.format(vat),
+                    currency.format(gross),
+
+                    // NEW: Net / VAT / Gross (pence)
+                    netPence.toString(),
+                    vatPence.toString(),
+                    grossPence.toString(),
+
                     esc(m.notes)
                 ).joinToString(",")
             )
@@ -55,19 +73,34 @@ object ExportCsv {
 
         // --- Expenses section ---
         sb.appendLine("# Expenses")
-        sb.appendLine("date,category,title,merchant,amount_gbp,amount_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes")
+        sb.appendLine("date,category,title,merchant,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes")
         expenses.forEach { e ->
             val date = LocalDate.ofInstant(Instant.ofEpochMilli(e.timestamp), ZoneId.systemDefault())
-            val amountPence = (e.amount * 100.0).roundToInt()
-            val gbp = currency.format(e.amount)
+            val gross = e.amount
+            val net = gross / 1.20
+            val vat = gross - net
+
+            val grossPence = (gross * 100).roundToInt()
+            val netPence = (net * 100).roundToInt()
+            val vatPence = (vat * 100).roundToInt()
+
             sb.appendLine(
                 listOf(
                     date.format(dateFmt),
                     esc(e.category),
                     esc(e.title),
                     esc(e.merchant),
-                    gbp,
-                    amountPence.toString(),
+
+                    // NEW: Net / VAT / Gross (formatted)
+                    currency.format(net),
+                    currency.format(vat),
+                    currency.format(gross),
+
+                    // NEW: Pence versions
+                    netPence.toString(),
+                    vatPence.toString(),
+                    grossPence.toString(),
+
                     esc(e.status.name),
                     e.reimbursable.toString(),
                     esc(e.paymentMethod),
@@ -79,12 +112,22 @@ object ExportCsv {
         }
         sb.appendLine()
 
-        // --- Mileage section (same as mileage-only) ---
+        // --- Mileage section (with NET / VAT / GROSS) ---
         sb.appendLine("# Mileage")
-        sb.appendLine("date,from,to,miles,rate_pence_per_mile,amount_pence,amount_gbp,notes")
+        sb.appendLine("date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes")
+
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
-            val gbp = currency.format(m.amountPence / 100.0)
+
+            // Treat amountPence as gross
+            val gross = m.amountPence / 100.0
+            val net = gross / 1.20
+            val vat = gross - net
+
+            val grossPence = m.amountPence
+            val netPence = (net * 100.0).roundToInt()
+            val vatPence = (vat * 100.0).roundToInt()
+
             sb.appendLine(
                 listOf(
                     m.date.format(dateFmt),
@@ -92,8 +135,17 @@ object ExportCsv {
                     esc(m.toLabel),
                     miles.toString(),
                     m.ratePencePerMile.toString(),
-                    m.amountPence.toString(),
-                    gbp,
+
+                    // NEW: Net / VAT / Gross (GBP)
+                    currency.format(net),
+                    currency.format(vat),
+                    currency.format(gross),
+
+                    // NEW: Net / VAT / Gross (pence)
+                    netPence.toString(),
+                    vatPence.toString(),
+                    grossPence.toString(),
+
                     esc(m.notes)
                 ).joinToString(",")
             )
