@@ -45,7 +45,31 @@ class MainActivity : ComponentActivity() {
                     val nav = rememberNavController()
                     val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
 
-                    NavHost(navController = nav, startDestination = "list") {
+                    // work out which screen to start on
+                    val openAddExpense = remember {
+                        intent?.getBooleanExtra("open_add_expense", false) == true
+                    }
+                    val startRoute = if (openAddExpense) "edit" else "activity"
+
+                    NavHost(navController = nav, startDestination = startRoute) {
+                        composable("activity") {
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                            val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                                factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                            )
+
+                            com.example.simpleexpenses.ui.CombinedActivityScreen(
+                                expenseVM = vm,
+                                mileageVM = mvm,
+                                onExpenseClick = { id -> nav.navigate("edit?id=$id") },
+                                onMileageClick = { id -> nav.navigate("mileage_edit?id=$id") },
+                                onAddExpense = { nav.navigate("edit") },
+                                onAddMileage = { nav.navigate("mileage") },
+                                onOpenExport = { nav.navigate("export") },
+                                onOpenSettings = { nav.navigate("settings") }
+                            )
+                        }
                         composable("list") {
                             ExpenseListScreen(
                                 viewModel = vm,
