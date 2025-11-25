@@ -1,5 +1,6 @@
 package com.example.simpleexpenses
 
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     val openAddExpense = remember {
                         intent?.getBooleanExtra("open_add_expense", false) == true
                     }
-                    val startRoute = if (openAddExpense) "edit" else "activity"
+                    val startRoute = if (openAddExpense) "edit" else "activity" // "list"
 
                     NavHost(navController = nav, startDestination = startRoute) {
                         composable("activity") {
@@ -67,7 +68,11 @@ class MainActivity : ComponentActivity() {
                                 onAddExpense = { nav.navigate("edit") },
                                 onAddMileage = { nav.navigate("mileage") },
                                 onOpenExport = { nav.navigate("export") },
-                                onOpenSettings = { nav.navigate("settings") }
+                                onOpenSettings = { nav.navigate("settings") },
+                                onStartDraftFromCamera = { uri ->
+                                    val encoded = Uri.encode(uri.toString())
+                                    nav.navigate("edit?receiptUri=$encoded")
+                                }
                             )
                         }
                         composable("list") {
@@ -81,18 +86,29 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(
-                            route = "edit?id={id}",
+                            route = "edit?id={id}&receiptUri={receiptUri}",
                             arguments = listOf(
-                                navArgument("id") { type = NavType.LongType; defaultValue = -1L }
+                                navArgument("id") { type = NavType.LongType; defaultValue = -1L },
+                                navArgument("receiptUri") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                    nullable = true
+                                }
                             )
                         ) { backStack ->
                             val id = backStack.arguments?.getLong("id") ?: -1L
+                            val receiptUriArg = backStack.arguments
+                                ?.getString("receiptUri")
+                                ?.takeUnless { it.isNullOrBlank() }
+
                             ExpenseEditScreen(
                                 viewModel = vm,
                                 expenseId = if (id >= 0) id else null,
+                                initialReceiptUri = receiptUriArg,
                                 onDone = { nav.popBackStack() }
                             )
                         }
+
                         composable("export") {
                             ExportScreen(
                                 viewModel = vm,

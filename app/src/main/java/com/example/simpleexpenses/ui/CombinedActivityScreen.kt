@@ -1,7 +1,11 @@
 package com.example.simpleexpenses.ui
 
 import android.Manifest
+import android.content.ContentValues
+import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -14,8 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Card
@@ -70,7 +76,8 @@ fun CombinedActivityScreen(
     onAddExpense: () -> Unit,
     onAddMileage: () -> Unit,
     onOpenExport: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onStartDraftFromCamera: (Uri) -> Unit
 ) {
     val expenses by expenseVM.expenses.collectAsState(initial = emptyList())
     val mileage by mileageVM.items.collectAsState(initial = emptyList())
@@ -115,6 +122,23 @@ fun CombinedActivityScreen(
             // Optional: you can show a snackbar if you want
             // scope.launch { snackbarHostState.showSnackbar("Notifications disabled") }
         }
+    }
+
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncherForDraft = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCaptureUri?.let { captured ->
+                // Hand this off to nav to open New Expense with the photo
+                onStartDraftFromCamera(captured)
+            }
+        } else {
+            // Clean up empty entry if the user cancelled
+            pendingCaptureUri?.let { context.contentResolver.delete(it, null, null) }
+        }
+        pendingCaptureUri = null
     }
 
     Scaffold(
@@ -193,6 +217,23 @@ fun CombinedActivityScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.End
             ) {
+                // 📷 New expense from photo
+                FloatingActionButton(
+                    onClick = {
+                        val uri = createImageUri(context)
+                        pendingCaptureUri = uri
+                        if (uri != null) {
+                            cameraLauncherForDraft.launch(uri)
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PhotoCamera,
+                        contentDescription = "New expense from photo"
+                    )
+                }
+
+                // Existing FABs
                 FloatingActionButton(onClick = onAddExpense) { Text("£") }
                 FloatingActionButton(onClick = onAddMileage) { Text("mi") }
             }
@@ -338,23 +379,54 @@ fun CombinedActivityScreen(
                 contentPadding = PaddingValues(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-
                 items(items) { item ->
                     when (item) {
                         is CombinedItem.ExpenseItem ->
-                            ExpenseRow(
-                                item = item.e,
-                                onClick = { onExpenseClick(item.e.id) }
-                            )
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                ExpenseRow(
+                                    item = item.e,
+                                    onClick = { onExpenseClick(item.e.id) }
+                                )
+                            }
 
                         is CombinedItem.MileageItem ->
-                            MileageRow(
-                                item = item.m,
-                                onClick = { onMileageClick(item.m.id) }
-                            )
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                MileageRow(
+                                    item = item.m,
+                                    onClick = { onMileageClick(item.m.id) }
+                                )
+                            }
                     }
                 }
             }
         }
     }
+}
+
+private fun createImageUri(context: Context): Uri? {
+    val name = "receipt_${System.currentTimeMillis()}.jpg"
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Photos > Albums > SimpleExpenses
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SimpleExpenses")
+        }
+    }
+    return context.contentResolver.insert(
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        values
+    )
 }

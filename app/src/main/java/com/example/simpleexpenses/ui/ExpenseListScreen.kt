@@ -17,11 +17,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -695,7 +699,6 @@ fun ExpenseListScreen(
                             }
                         }
 
-                        // The swipe container (same background/content as before)
                         SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
@@ -714,97 +717,115 @@ fun ExpenseListScreen(
                                 }
                             }
                         ) {
-                            ListItem(
-                                overlineContent = {
-                                    val parts = buildList {
-                                        if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
-                                        add(e.category)
-                                        if (!e.reimbursable) add("Not reimbursable")
-                                        add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
-                                    }
-                                    Text(parts.joinToString(" • "))
-                                },
-                                headlineContent = { Text(e.title) },
-                                supportingContent = { Text("£${"%.2f".format(e.amount)}") },
-                                trailingContent = {
-                                    // NEW: show a small badge for receipt type
-                                    val context = LocalContext.current
-                                    val receiptUri = e.receiptUri
-                                    val isPdf = remember(receiptUri) {
-                                        receiptUri?.let {
-                                            // MIME check, with safe fallback to .pdf extension
-                                            val t = runCatching {
-                                                context.contentResolver.getType(
-                                                    Uri.parse(it)
-                                                )
-                                            }.getOrNull()
-                                            t == "application/pdf" || it.endsWith(
-                                                ".pdf",
-                                                ignoreCase = true
-                                            )
-                                        } ?: false
-                                    }
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        if (!receiptUri.isNullOrBlank()) {
-                                            Icon(
-                                                imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
-                                                contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
-                                                tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-
-                                        // keep your existing chip
-                                        com.example.simpleexpenses.ui.components.StatusChip(e.status)
-
-                                        IconButton(onClick = { menuForId = e.id }) {
-                                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = menuForId == e.id,
-                                            onDismissRequest = { menuForId = null }
+                            Card(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                                    .clickable { onEdit(e.id) },
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                ListItem(
+                                    leadingContent = {
+                                        // Vertical coloured status bar
+                                        Box(
+                                            modifier = Modifier
+                                                .height(40.dp)
+                                                .padding(end = 4.dp)
                                         ) {
-                                            fun choose(newStatus: ExpenseStatus, label: String) {
-                                                scope.launch {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    viewModel.update(e.copy(status = newStatus))
-                                                    snackbarHostState.showSnackbar("Marked as $label")
-                                                }
-                                                menuForId = null
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .width(4.dp)
+                                                    .background(
+                                                        color = statusColor(e.status),
+                                                        shape = RoundedCornerShape(2.dp)
+                                                    )
+                                            )
+                                        }
+                                    },
+                                    overlineContent = {
+                                        val parts = buildList {
+                                            if (!e.merchant.isNullOrBlank()) add(e.merchant!!)
+                                            add(e.category)
+                                            if (!e.reimbursable) add("Not reimbursable")
+                                            add(if (e.paymentMethod == "CompanyCard") "Company card" else "Personal")
+                                        }
+                                        Text(parts.joinToString(" • "))
+                                    },
+                                    headlineContent = {
+                                        Text(
+                                            text = e.title,
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                    },
+                                    supportingContent = {
+                                        Text(
+                                            text = "£${"%.2f".format(e.amount)}",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                    },
+                                    trailingContent = {
+                                        val context = LocalContext.current
+                                        val receiptUri = e.receiptUri
+                                        val isPdf = remember(receiptUri) {
+                                            receiptUri?.let {
+                                                val t = runCatching {
+                                                    context.contentResolver.getType(Uri.parse(it))
+                                                }.getOrNull()
+                                                t == "application/pdf" || it.endsWith(".pdf", ignoreCase = true)
+                                            } ?: false
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (!receiptUri.isNullOrBlank()) {
+                                                Icon(
+                                                    imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
+                                                    contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
+                                                    tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
 
-                                            DropdownMenuItem(
-                                                text = { Text("Mark as Submitted") },
-                                                onClick = {
-                                                    choose(
-                                                        ExpenseStatus.Submitted,
-                                                        "Submitted"
-                                                    )
+                                            com.example.simpleexpenses.ui.components.StatusChip(e.status)
+
+                                            IconButton(onClick = { menuForId = e.id }) {
+                                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                            }
+
+                                            DropdownMenu(
+                                                expanded = menuForId == e.id,
+                                                onDismissRequest = { menuForId = null }
+                                            ) {
+                                                fun choose(newStatus: ExpenseStatus, label: String) {
+                                                    scope.launch {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        viewModel.update(e.copy(status = newStatus))
+                                                        snackbarHostState.showSnackbar("Marked as $label")
+                                                    }
+                                                    menuForId = null
                                                 }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Mark as Approved") },
-                                                onClick = { choose(ExpenseStatus.Approved, "Approved") }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Mark as Paid") },
-                                                onClick = { choose(ExpenseStatus.Paid, "Paid") }
-                                            )
+
+                                                DropdownMenuItem(
+                                                    text = { Text("Mark as Submitted") },
+                                                    onClick = { choose(ExpenseStatus.Submitted, "Submitted") }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Mark as Approved") },
+                                                    onClick = { choose(ExpenseStatus.Approved, "Approved") }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Mark as Paid") },
+                                                    onClick = { choose(ExpenseStatus.Paid, "Paid") }
+                                                )
+                                            }
                                         }
                                     }
-                                },
-                                modifier = Modifier
-                                    .clickable { onEdit(e.id) }
-                                    .padding(horizontal = 8.dp)
-                            )
+                                )
+                            }
                         }
-
-                        Divider()
 
                         // Confirmation dialog for Paid
                         if (showConfirm) {
@@ -828,5 +849,16 @@ fun ExpenseListScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun statusColor(status: ExpenseStatus): androidx.compose.ui.graphics.Color {
+    val scheme = MaterialTheme.colorScheme
+    return when (status) {
+        ExpenseStatus.Submitted -> scheme.primary
+        ExpenseStatus.Approved  -> scheme.tertiary
+        ExpenseStatus.Paid      -> scheme.secondary
+        else                    -> scheme.outline
     }
 }

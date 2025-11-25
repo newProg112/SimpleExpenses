@@ -24,13 +24,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -57,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
+import com.example.simpleexpenses.ocr.ReceiptOcrHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +78,7 @@ import kotlinx.coroutines.withContext
 fun ExpenseEditScreen(
     viewModel: ExpenseViewModel,
     expenseId: Long? = null,
+    initialReceiptUri: String? = null,
     onDone: () -> Unit
 ) {
     // Preset options
@@ -82,6 +88,11 @@ fun ExpenseEditScreen(
     // Local state (saveable across rotation)
     var title by rememberSaveable { mutableStateOf("") }
     var amountText by rememberSaveable { mutableStateOf("") }
+
+    var amountFromOcr by rememberSaveable { mutableStateOf(false) }
+    var hasTriedOcr by rememberSaveable { mutableStateOf(false) }
+    var detectedDateFromOcr by rememberSaveable { mutableStateOf<String?>(null) }
+
     var status by rememberSaveable { mutableStateOf(ExpenseStatus.Submitted) }
 
     var titleTouched by rememberSaveable { mutableStateOf(false) }
@@ -99,7 +110,9 @@ fun ExpenseEditScreen(
 
     val focus = LocalFocusManager.current
 
-    var receiptLocalUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var receiptLocalUri by rememberSaveable(expenseId, initialReceiptUri) {
+        mutableStateOf<String?>(initialReceiptUri)
+    }
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -108,6 +121,7 @@ fun ExpenseEditScreen(
     val amountError = amount == null || amount <= 0.0
 
     val titleError = titleTouched && title.isBlank()
+
     val canSave = !titleError && !amountError
 
     var vatRatePercent by rememberSaveable { mutableStateOf(20) }
@@ -135,6 +149,33 @@ fun ExpenseEditScreen(
             )
             if (existing == null) viewModel.add(updated) else viewModel.update(updated)
             onDone()
+        }
+    }
+
+    val context = LocalContext.current
+
+    // Try OCR once when we first get a receipt image and amount is still blank
+    LaunchedEffect(receiptLocalUri) {
+        if (!receiptLocalUri.isNullOrBlank() && amountText.isBlank() && !hasTriedOcr) {
+            hasTriedOcr = true
+            amountFromOcr = false
+            detectedDateFromOcr = null
+
+            val uri = Uri.parse(receiptLocalUri)
+
+            // Fire-and-forget: OCR runs on background thread and calls back
+            ReceiptOcrHelper.extractTotalAndDateFromReceipt(context, uri) { result ->
+                // Total
+                if (result.total != null && amountText.isBlank()) {
+                    amountText = String.format("%.2f", result.total)
+                    amountFromOcr = true
+                }
+
+                // Date – we just show it as a hint for now
+                if (result.date != null && detectedDateFromOcr == null) {
+                    detectedDateFromOcr = result.date
+                }
+            }
         }
     }
 
@@ -199,6 +240,21 @@ fun ExpenseEditScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            ReceiptSection(
+                expenseId = expenseId,
+                currentReceiptUri = receiptLocalUri,
+                onPick = { uri ->
+                    receiptLocalUri = uri.toString()
+                    expenseId?.let { viewModel.attachReceipt(it, uri) }
+                },
+                onRemove = {
+                    receiptLocalUri = null
+                    expenseId?.let { viewModel.removeReceipt(it) }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+
             // Title
             OutlinedTextField(
                 value = title,
@@ -234,7 +290,23 @@ fun ExpenseEditScreen(
                     if (amountError) {
                         Text("Enter a number > 0, e.g. 4.50")
                     } else {
-                        Text("Treated as gross (includes ${vatRatePercent}% VAT). Breakdown shown below.")
+                        Column {
+                            Text("Treated as gross (includes ${vatRatePercent}% VAT). Breakdown shown below.")
+                            if (amountFromOcr) {
+                                Text(
+                                    text = "Amount detected from receipt",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (detectedDateFromOcr != null) {
+                                Text(
+                                    text = "Detected date: ${detectedDateFromOcr}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 },
                 singleLine = true,
@@ -298,31 +370,82 @@ fun ExpenseEditScreen(
             if (grossAmount != null && netAmount != null && vatAmount != null) {
                 Spacer(Modifier.height(8.dp))
 
-                OutlinedTextField(
-                    value = currency.format(netAmount),
-                    onValueChange = { },
-                    label = { Text("Net (${vatRatePercent}% VAT)") },
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = false,
-                    readOnly = true
-                )
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "NET / VAT / GROSS breakdown",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                OutlinedTextField(
-                    value = currency.format(vatAmount),
-                    onValueChange = { },
-                    label = { Text("VAT (${vatRatePercent}%)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = false,
-                    readOnly = true
-                )
+                        Spacer(Modifier.height(8.dp))
 
-                OutlinedTextField(
-                    value = currency.format(grossAmount),
-                    onValueChange = { },
-                    label = { Text("Gross") },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = false,
-                    readOnly = true
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Net
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "Net (${vatRatePercent}% VAT)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = currency.format(netAmount),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+
+                            // VAT
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "VAT (${vatRatePercent}%)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = currency.format(vatAmount),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+
+                            // Gross
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "Gross",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = currency.format(grossAmount),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                Text(
+                    text = "Net + VAT = Gross",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
 
@@ -382,31 +505,59 @@ fun ExpenseEditScreen(
             }
             Spacer(Modifier.height(12.dp))
 
-            // Reimbursable
-            Row(
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
-                Text("Reimbursable")
-                Switch(checked = reimbursable, onCheckedChange = { reimbursable = it })
-            }
-            Spacer(Modifier.height(12.dp))
-
-            // Payment method
-            Text("Payment method", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 6.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                paymentMethods.forEach { pm ->
-                    FilterChip(
-                        selected = paymentMethod == pm,
-                        onClick = { paymentMethod = pm },
-                        label = { Text(if (pm == "CompanyCard") "Company card" else pm) }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Reimbursement & payment",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    // Reimbursable
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Reimbursable")
+                        Switch(
+                            checked = reimbursable,
+                            onCheckedChange = { reimbursable = it }
+                        )
+                    }
+
+                    // Payment method
+                    Text(
+                        text = "Payment method",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        paymentMethods.forEach { pm ->
+                            FilterChip(
+                                selected = paymentMethod == pm,
+                                onClick = { paymentMethod = pm },
+                                label = { Text(if (pm == "CompanyCard") "Company card" else pm) }
+                            )
+                        }
+                    }
                 }
             }
+
             Spacer(Modifier.height(12.dp))
 
             // Notes
@@ -414,24 +565,14 @@ fun ExpenseEditScreen(
                 value = notes,
                 onValueChange = { notes = it },
                 label = { Text("Notes") },
+                supportingText = {
+                    Text("Optional – add anything your approver should know")
+                },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
 
-            ReceiptSection(
-                expenseId = expenseId,
-                currentReceiptUri = receiptLocalUri,   // 👈 use screen state
-                onPick = { uri ->
-                    receiptLocalUri = uri.toString()   // 👈 keep local in sync
-                    expenseId?.let { viewModel.attachReceipt(it, uri) } // existing items update DB
-                },
-                onRemove = {
-                    receiptLocalUri = null             // 👈 keep local in sync
-                    expenseId?.let { viewModel.removeReceipt(it) }
-                }
-            )
-
-            Spacer(Modifier.height(80.dp)) // breathing room above bottom bar
+            Spacer(Modifier.height(80.dp))
         }
     }
 
@@ -507,115 +648,130 @@ fun ReceiptSection(
     onRemove: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var localUri by remember(currentReceiptUri) { mutableStateOf(currentReceiptUri) }
     var showPreview by remember { mutableStateOf(false) }
 
-    // ---- PICK FILE (kept) ----
+    // ---- PICK FILE ----
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Persist read permission so we can keep loading it later
             try {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-            } catch (_: SecurityException) { /* already persisted or not persistable */ }
+            } catch (_: SecurityException) {
+                // already persisted or not persistable
+            }
 
-            onPick(uri)                  // always update caller
-            localUri = uri.toString()    // optimistic UI
+            onPick(uri) // let the screen own the URI
         }
     }
 
-    // ---- TAKE PHOTO (new) ----
+    // ---- TAKE PHOTO ----
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
             pendingCaptureUri?.let { captured ->
-                onPick(captured)                 // update screen + DB (if existing)
-                localUri = captured.toString()   // optimistic UI
+                onPick(captured) // screen updates its state
             }
         } else {
-            // If capture cancelled, clean up any empty row inserted into MediaStore
             pendingCaptureUri?.let { context.contentResolver.delete(it, null, null) }
         }
         pendingCaptureUri = null
     }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Take photo (camera)
-        Button(onClick = {
-            val uri = createImageUri(context)
-            pendingCaptureUri = uri
-            if (uri != null) cameraLauncher.launch(uri)
-        }) { Text("Take photo") }
-
-        // Pick file (document picker)
-        Button(onClick = { picker.launch(arrayOf("image/*", "application/pdf")) }) {
-            Text(if (localUri.isNullOrEmpty()) "Pick file" else "Replace")
-        }
-
-        if (!localUri.isNullOrEmpty()) {
-            OutlinedButton(onClick = {
-                onRemove()
-                localUri = null
-            }) { Text("Remove") }
-        }
+    val uriString = currentReceiptUri
+    val hasAttachment = !uriString.isNullOrEmpty()
+    val isPdf: Boolean = if (hasAttachment) {
+        val mime = context.contentResolver.getType(Uri.parse(uriString))
+        (mime == "application/pdf") || uriString.endsWith(".pdf", ignoreCase = true)
+    } else {
+        false
     }
 
-    // Snapshot the value so Kotlin can smart-cast it safely
-    val uriString = localUri
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = "Attachments",
+            style = MaterialTheme.typography.titleMedium
+        )
 
-    if (!uriString.isNullOrEmpty()) {
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
-        // Detect PDF by MIME (fallback to .pdf extension)
-        val mime = remember(uriString) {
-            uriString?.let { context.contentResolver.getType(Uri.parse(it)) }
-        }
-        val isPdf = (mime == "application/pdf") ||
-                uriString.endsWith(".pdf", ignoreCase = true)
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-                .clickable {
-                    if (isPdf) {
-                        val i = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(Uri.parse(uriString), "application/pdf")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (hasAttachment) {
+            // Show the image / PDF first
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clickable {
+                        if (isPdf) {
+                            val i = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(Uri.parse(uriString), "application/pdf")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(i) }
+                        } else {
+                            showPreview = true
                         }
-                        runCatching { context.startActivity(i) }
-                    } else {
-                        showPreview = true
                     }
+            ) {
+                if (isPdf) {
+                    PdfFirstPageThumb(uri = Uri.parse(uriString))
+                } else {
+                    Image(
+                        painter = rememberAsyncImagePainter(model = Uri.parse(uriString)),
+                        contentDescription = "Receipt",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Buttons now sit under the image (or under the title if no image yet)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (isPdf) {
-                PdfFirstPageThumb(uri = Uri.parse(uriString))
-            } else {
-                Image(
-                    painter = rememberAsyncImagePainter(model = Uri.parse(uriString)),
-                    contentDescription = "Receipt",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+            // Take photo
+            Button(onClick = {
+                val uri = createImageUri(context)
+                pendingCaptureUri = uri
+                if (uri != null) cameraLauncher.launch(uri)
+            }) {
+                Text("Take photo")
+            }
+
+            // Pick / replace file
+            Button(onClick = { picker.launch(arrayOf("image/*", "application/pdf")) }) {
+                Text(if (hasAttachment) "Replace file" else "Pick file")
+            }
+
+            if (hasAttachment) {
+                OutlinedButton(onClick = { onRemove() }) {
+                    Text("Remove")
+                }
             }
         }
     }
 
-
-    if (showPreview && !localUri.isNullOrEmpty()) {
+    // Full-screen image preview (for images only)
+    if (showPreview && hasAttachment && !isPdf) {
         AlertDialog(
             onDismissRequest = { showPreview = false },
-            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("Close") } },
+            confirmButton = {
+                TextButton(onClick = { showPreview = false }) { Text("Close") }
+            },
             text = {
                 Image(
-                    painter = rememberAsyncImagePainter(model = Uri.parse(localUri)),
+                    painter = rememberAsyncImagePainter(model = Uri.parse(uriString)),
                     contentDescription = "Receipt full screen",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
