@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = vm,
                                 expenseId = if (id >= 0) id else null,
                                 initialReceiptUri = receiptUriArg,
+                                startWithCamera = (openAddExpense && id < 0 && receiptUriArg == null),
                                 onDone = { nav.popBackStack() }
                             )
                         }

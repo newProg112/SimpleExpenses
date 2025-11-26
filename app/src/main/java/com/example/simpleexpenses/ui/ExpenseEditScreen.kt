@@ -79,6 +79,7 @@ fun ExpenseEditScreen(
     viewModel: ExpenseViewModel,
     expenseId: Long? = null,
     initialReceiptUri: String? = null,
+    startWithCamera: Boolean = false,
     onDone: () -> Unit
 ) {
     // Preset options
@@ -250,7 +251,8 @@ fun ExpenseEditScreen(
                 onRemove = {
                     receiptLocalUri = null
                     expenseId?.let { viewModel.removeReceipt(it) }
-                }
+                },
+                autoLaunchCamera = startWithCamera
             )
 
             Spacer(Modifier.height(16.dp))
@@ -645,7 +647,8 @@ fun ReceiptSection(
     expenseId: Long?,
     currentReceiptUri: String?,
     onPick: (Uri) -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    autoLaunchCamera: Boolean = false
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showPreview by remember { mutableStateOf(false) }
@@ -681,6 +684,17 @@ fun ReceiptSection(
             pendingCaptureUri?.let { context.contentResolver.delete(it, null, null) }
         }
         pendingCaptureUri = null
+    }
+
+    // Auto-launch camera once when requested (e.g. from Quick Add)
+    LaunchedEffect(autoLaunchCamera) {
+        if (autoLaunchCamera && currentReceiptUri.isNullOrEmpty()) {
+            val uri = createImageUri(context)
+            pendingCaptureUri = uri
+            if (uri != null) {
+                cameraLauncher.launch(uri)
+            }
+        }
     }
 
     val uriString = currentReceiptUri

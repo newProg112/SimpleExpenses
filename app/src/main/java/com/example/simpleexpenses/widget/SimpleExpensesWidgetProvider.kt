@@ -20,32 +20,47 @@ class SimpleExpensesWidgetProvider : AppWidgetProvider() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
 
+        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
         appWidgetIds.forEach { appWidgetId ->
             val views = RemoteViews(context.packageName, R.layout.widget_simple_expenses)
 
-            // Intent to open the app (Activity screen)
-            val launchIntent = Intent(context, MainActivity::class.java)
-
-            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-
-            val pendingIntent = PendingIntent.getActivity(
+            // ---- Normal open app intent (root + mileage) ----
+            val openAppIntent = Intent(context, MainActivity::class.java)
+            val openAppPending = PendingIntent.getActivity(
                 context,
                 0,
-                launchIntent,
+                openAppIntent,
                 pendingFlags
             )
 
-            // Make the whole widget clickable
-            views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
+            // Root opens app normally
+            views.setOnClickPendingIntent(R.id.widget_root, openAppPending)
 
-            // For v1, both buttons just open the app too
-            views.setOnClickPendingIntent(R.id.widget_add_expense, pendingIntent)
-            views.setOnClickPendingIntent(R.id.widget_add_mileage, pendingIntent)
+            // Mileage button also opens app normally for now
+            views.setOnClickPendingIntent(R.id.widget_add_mileage, openAppPending)
 
+            // ---- Quick Add Expense (auto-launch camera) ----
+            val quickAddIntent = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                putExtra("open_add_expense", true)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+
+            val quickAddPending = PendingIntent.getActivity(
+                context,
+                1, // use a different requestCode
+                quickAddIntent,
+                pendingFlags
+            )
+
+            views.setOnClickPendingIntent(R.id.widget_add_expense, quickAddPending)
+
+            // Apply updates
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
     }

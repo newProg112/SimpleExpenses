@@ -33,12 +33,14 @@
         android:gravity="end"
         android:layout_marginTop="8dp">
 
-        <Button
+        <ImageButton
             android:id="@+id/widget_add_expense"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="+ Expense"
-            android:textSize="12sp" />
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="6dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/ic_widget_camera"
+            android:contentDescription="Add expense by photo" />
 
         <Button
             android:id="@+id/widget_add_mileage"
