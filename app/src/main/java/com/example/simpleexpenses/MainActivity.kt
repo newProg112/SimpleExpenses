@@ -41,6 +41,10 @@ class MainActivity : ComponentActivity() {
             // App-wide theme mode (for now, in-memory only)
             var themeMode by remember { mutableStateOf(AppThemeMode.SYSTEM) }
 
+            val openAddExpenseCamera = remember {
+                intent?.getBooleanExtra("open_add_expense_camera", false) == true
+            }
+
             SimpleExpensesTheme(mode = themeMode) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     val nav = rememberNavController()
@@ -82,7 +86,12 @@ class MainActivity : ComponentActivity() {
                                 onEdit = { id -> nav.navigate("edit?id=$id") },
                                 onExport = { nav.navigate("export") },
                                 onOpenMileage = { nav.navigate("mileage_list") },
-                                onOpenSettings = { nav.navigate("settings") }
+                                onOpenSettings = { nav.navigate("settings") },
+                                onOpenCombined = {
+                                    nav.navigate("activity") {
+                                        popUpTo("activity") { inclusive = false }
+                                    }
+                                }
                             )
                         }
                         composable(
@@ -105,7 +114,11 @@ class MainActivity : ComponentActivity() {
                                 viewModel = vm,
                                 expenseId = if (id >= 0) id else null,
                                 initialReceiptUri = receiptUriArg,
-                                startWithCamera = (openAddExpense && id < 0 && receiptUriArg == null),
+                                startWithCamera = (
+                                        (openAddExpenseCamera || openAddExpense) &&
+                                                id < 0 &&
+                                                receiptUriArg == null
+                                        ),
                                 onDone = { nav.popBackStack() }
                             )
                         }

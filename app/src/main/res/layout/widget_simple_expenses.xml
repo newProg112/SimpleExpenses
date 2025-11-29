@@ -3,10 +3,12 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@android:color/white"
+    android:background="@drawable/widget_background"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="12dp"
+    android:layout_margin="8dp">
 
+    <!-- Title -->
     <TextView
         android:id="@+id/widget_title"
         android:layout_width="wrap_content"
@@ -14,41 +16,80 @@
         android:text="Simple Expenses"
         android:textStyle="bold"
         android:textSize="16sp"
-        android:textColor="@android:color/black" />
+        android:ellipsize="end"
+        android:maxLines="1" />
 
+    <!-- Helper / hint text -->
     <TextView
         android:id="@+id/widget_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Log expenses &amp; mileage faster"
+        android:layout_marginTop="2dp"
+        android:text="Tap + for a receipt, car for mileage"
         android:textSize="12sp"
-        android:textColor="@android:color/darker_gray"
-        android:layout_marginTop="4dp" />
+        android:ellipsize="end"
+        android:maxLines="1" />
 
+    <!-- Today’s date -->
+    <TextView
+        android:id="@+id/widget_date"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Today"
+        android:textSize="12sp"
+        android:textColor="#888888" />
+
+    <!-- Stats line (filled from code) -->
+    <TextView
+        android:id="@+id/widget_stats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="This month: --"
+        android:textSize="12sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
+
+    <!-- Mileage line (filled from code) -->
+    <TextView
+        android:id="@+id/widget_mileage_stats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="Mileage: --"
+        android:textSize="12sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
+
+    <!-- Buttons row -->
     <LinearLayout
-        android:id="@+id/widget_button_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
         android:gravity="end"
-        android:layout_marginTop="8dp">
+        android:orientation="horizontal">
 
+        <!-- Add expense (with camera from widget) -->
         <ImageButton
             android:id="@+id/widget_add_expense"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:contentDescription="Add expense"
             android:padding="6dp"
-            android:background="@android:color/transparent"
-            android:src="@drawable/ic_widget_camera"
-            android:contentDescription="Add expense by photo" />
+            android:src="@android:drawable/ic_menu_camera" />
 
-        <Button
+        <!-- Add mileage -->
+        <ImageButton
             android:id="@+id/widget_add_mileage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="+ Mileage"
-            android:textSize="12sp"
-            android:layout_marginStart="8dp" />
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:contentDescription="Add mileage"
+            android:padding="6dp"
+            android:src="@android:drawable/ic_menu_compass" />
+
     </LinearLayout>
 
 </LinearLayout>

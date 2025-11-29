@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -36,9 +39,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +60,10 @@ import com.example.simpleexpenses.data.MileageEntry
 import com.example.simpleexpenses.notify.ReminderScheduler
 import com.example.simpleexpenses.ui.rows.ExpenseRow
 import com.example.simpleexpenses.ui.rows.MileageRow
+import com.example.simpleexpenses.widget.SimpleExpensesWidgetProvider
+import java.time.format.DateTimeFormatter
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 sealed class CombinedItem {
@@ -300,6 +308,22 @@ fun CombinedActivityScreen(
 
             val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
 
+            val appContext = LocalContext.current.applicationContext
+
+            LaunchedEffect(combinedTotal, expenseTotalMonth, mileageTotalMonth, missingReceipts) {
+                val prefs = appContext.getSharedPreferences("simple_expenses_widget", Context.MODE_PRIVATE)
+
+                prefs.edit()
+                    .putString("widget_combined_total", currency.format(combinedTotal))
+                    .putString("widget_expense_total", currency.format(expenseTotalMonth))
+                    .putString("widget_mileage_total", currency.format(mileageTotalMonth))
+                    .putInt("widget_missing_receipts", missingReceipts)
+                    .apply()
+
+                // Ask the widget to refresh itself
+                SimpleExpensesWidgetProvider.forceUpdate(appContext)
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -374,44 +398,150 @@ fun CombinedActivityScreen(
                 }
             }
 
+            // Group the combined items by day, newest day first
+            val groupedByDate = remember(items) {
+                items.groupBy { item ->
+                    when (item) {
+                        is CombinedItem.ExpenseItem ->
+                            Instant.ofEpochMilli(item.e.timestamp)
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate()
+
+                        is CombinedItem.MileageItem ->
+                            item.m.date
+                    }
+                }.toSortedMap(compareByDescending { it }) // latest date at the top
+            }
+
             LazyColumn(
-                Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(items) { item ->
-                    when (item) {
-                        is CombinedItem.ExpenseItem ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                            ) {
-                                ExpenseRow(
-                                    item = item.e,
-                                    onClick = { onExpenseClick(item.e.id) }
-                                )
-                            }
+                groupedByDate.forEach { (date, dayItems) ->
+                    // Date header row
+                    item(key = "header_$date") {
+                        ActivityDateHeader(date)
+                    }
 
-                        is CombinedItem.MileageItem ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                            ) {
-                                MileageRow(
-                                    item = item.m,
-                                    onClick = { onMileageClick(item.m.id) }
-                                )
+                    // Items for that date
+                    items(
+                        items = dayItems,
+                        key = { dayItem ->
+                            when (dayItem) {
+                                is CombinedItem.ExpenseItem -> "expense_${dayItem.e.id}"
+                                is CombinedItem.MileageItem -> "mileage_${dayItem.m.id}"
                             }
+                        }
+                    ) { dayItem ->
+                        when (dayItem) {
+                            is CombinedItem.ExpenseItem ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 4.dp)
+                                    ) {
+                                        // Chip row (top-right)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Spacer(modifier = Modifier.weight(1f))
+
+                                            AssistChip(
+                                                onClick = { /* no-op */ },
+                                                label = { Text("Expense") },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            )
+                                        }
+
+                                        // Existing row content
+                                        ExpenseRow(
+                                            item = dayItem.e,
+                                            onClick = { onExpenseClick(dayItem.e.id) }
+                                        )
+                                    }
+                                }
+
+                            is CombinedItem.MileageItem ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 4.dp)
+                                    ) {
+                                        // Chip row (top-right)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Spacer(modifier = Modifier.weight(1f))
+
+                                            AssistChip(
+                                                onClick = { /* no-op */ },
+                                                label = { Text("Mileage") },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                            )
+                                        }
+
+                                        // Existing row content
+                                        MileageRow(
+                                            item = dayItem.m,
+                                            onClick = { onMileageClick(dayItem.m.id) }
+                                        )
+                                    }
+                                }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+private fun ActivityDateHeader(date: LocalDate) {
+    val formatter = remember {
+        DateTimeFormatter.ofPattern("EEE d MMM") // e.g. "Mon 17 Nov"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
+    ) {
+        Text(
+            text = date.format(formatter),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
     }
 }
 

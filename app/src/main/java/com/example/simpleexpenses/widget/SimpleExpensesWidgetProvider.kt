@@ -10,6 +10,9 @@ import android.os.Build
 import android.widget.RemoteViews
 import com.example.simpleexpenses.MainActivity
 import com.example.simpleexpenses.R
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class SimpleExpensesWidgetProvider : AppWidgetProvider() {
 
@@ -28,6 +31,30 @@ class SimpleExpensesWidgetProvider : AppWidgetProvider() {
 
         appWidgetIds.forEach { appWidgetId ->
             val views = RemoteViews(context.packageName, R.layout.widget_simple_expenses)
+
+            // Friendly “today” label
+            val dateText = SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date())
+            views.setTextViewText(R.id.widget_date, dateText)
+
+            // Read latest stats from SharedPreferences
+            val prefs = context.getSharedPreferences("simple_expenses_widget", Context.MODE_PRIVATE)
+            val combined = prefs.getString("widget_combined_total", null)
+            val missing = prefs.getInt("widget_missing_receipts", 0)
+            val mileage = prefs.getString("widget_mileage_total", null)
+
+            val statsText = when {
+                combined == null -> "No data yet"
+                missing > 0      -> "This month: $combined • $missing missing"
+                else             -> "This month: $combined"
+            }
+
+            val mileageText = when (mileage) {
+                null -> "Mileage: --"
+                else -> "Mileage: $mileage"
+            }
+
+            views.setTextViewText(R.id.widget_stats, statsText)
+            views.setTextViewText(R.id.widget_mileage_stats, mileageText)
 
             // ---- Normal open app intent (root + mileage) ----
             val openAppIntent = Intent(context, MainActivity::class.java)
@@ -48,6 +75,7 @@ class SimpleExpensesWidgetProvider : AppWidgetProvider() {
             val quickAddIntent = Intent(context, MainActivity::class.java).apply {
                 action = Intent.ACTION_VIEW
                 putExtra("open_add_expense", true)
+                putExtra("open_add_expense_camera", true)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
 

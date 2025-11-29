@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
@@ -180,7 +181,8 @@ fun ExpenseListScreen(
     onEdit: (Long) -> Unit,
     onExport: () -> Unit,
     onOpenMileage: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenCombined: () -> Unit
 ) {
     val expenses by viewModel.expenses.collectAsState(initial = emptyList())
     val filters by viewModel.filters.collectAsState()
@@ -267,6 +269,14 @@ fun ExpenseListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Simple Expenses") },
+                navigationIcon = {
+                    IconButton(onClick = onOpenCombined) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowBack,
+                            contentDescription = "Back to Activity"
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = onOpenMileage) {
                         Icon(
