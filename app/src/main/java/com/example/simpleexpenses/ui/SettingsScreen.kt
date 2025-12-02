@@ -5,8 +5,10 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,7 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkManager
@@ -39,6 +44,7 @@ fun SettingsScreen(
     themeMode: AppThemeMode,
     onThemeChange: (AppThemeMode) -> Unit,
     onOpenAppInfo: () -> Unit,
+    onShowOnboarding: () -> Unit,
     onBack: () -> Unit
 ) {
     val ui by mileageVM.ui.collectAsState()
@@ -58,17 +64,31 @@ fun SettingsScreen(
             )
         }
     ) { pad ->
+        val scrollState = rememberScrollState()
+
         Column(
             Modifier
                 .padding(pad)
                 .padding(16.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Text("Mileage", style = MaterialTheme.typography.titleMedium)
 
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Use HMRC rates", modifier = Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Use HMRC rates",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Standard HMRC mileage rates (first 10,000 miles then lower rate).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
                 Switch(
                     checked = settings?.useHmrc == true,
                     onCheckedChange = { checked ->
@@ -77,36 +97,69 @@ fun SettingsScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.padding(top = 4.dp))
+
             OutlinedTextField(
                 value = settings?.customRatePence?.toString().orEmpty(),
                 onValueChange = { txt ->
                     val p = txt.filter { it.isDigit() }.toIntOrNull() ?: 0
                     scope.launch { mileageVM.setCustomRatePence(p) }
                 },
-                label = { Text("Custom rate (pence/mi)") },
+                label = { Text("Custom rate (pence per mile)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 enabled = settings?.useHmrc == false,
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Text(
+                text = if (settings?.useHmrc == true) {
+                    "Custom rate is disabled while HMRC rates are on."
+                } else {
+                    "Used when HMRC rates are off. Enter whole pence, e.g. 45."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
             Divider()
 
             Text("Reminders", style = MaterialTheme.typography.titleMedium)
 
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Daily reminder enabled", modifier = Modifier.weight(1f))
+            val currentHour = settings?.reminderHour ?: 19
+            val currentMinute = settings?.reminderMinute ?: 0
+            val timeLabel = String.format("%02d:%02d", currentHour, currentMinute)
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Daily reminder",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (reminderEnabled) "Reminder time: $timeLabel"
+                        else "Turn on to get a daily nudge to log expenses and mileage.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
                 Switch(
-                    checked = settings?.reminderEnabled == true,
+                    checked = reminderEnabled,
                     onCheckedChange = { checked ->
                         scope.launch {
                             mileageVM.setReminderEnabled(checked)
                             val h = settings?.reminderHour ?: 19
                             val m = settings?.reminderMinute ?: 0
                             if (checked) {
-                                ReminderScheduler.scheduleDaily(wm, h, m,
+                                ReminderScheduler.scheduleDaily(
+                                    wm,
+                                    h,
+                                    m,
                                     title = "Daily reminder",
-                                    message = "Log today’s expenses/mileage.")
+                                    message = "Log today’s expenses/mileage."
+                                )
                             } else {
                                 ReminderScheduler.cancelAll(wm)
                             }
@@ -115,11 +168,14 @@ fun SettingsScreen(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
                 OutlinedTextField(
-                    value = settings?.reminderHour?.toString().orEmpty(),
+                    value = currentHour.toString(),
                     onValueChange = { txt ->
-                        val h = txt.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0,23) ?: 19
+                        val h = txt.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0, 23) ?: currentHour
                         scope.launch {
                             mileageVM.setReminderTime(h, settings?.reminderMinute ?: 0)
                         }
@@ -131,9 +187,9 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
-                    value = settings?.reminderMinute?.toString().orEmpty(),
+                    value = currentMinute.toString(),
                     onValueChange = { txt ->
-                        val m = txt.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0,59) ?: 0
+                        val m = txt.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0, 59) ?: currentMinute
                         scope.launch {
                             mileageVM.setReminderTime(settings?.reminderHour ?: 19, m)
                         }
@@ -149,13 +205,18 @@ fun SettingsScreen(
                         scope.launch {
                             val h = settings?.reminderHour ?: 19
                             val m = settings?.reminderMinute ?: 0
-                            ReminderScheduler.scheduleDaily(wm, h, m,
+                            ReminderScheduler.scheduleDaily(
+                                wm,
+                                h,
+                                m,
                                 title = "Daily reminder",
-                                message = "Log today’s expenses/mileage.")
+                                message = "Log today’s expenses/mileage."
+                            )
                             mileageVM.setReminderEnabled(true)
                         }
-                    }
-                ) { Text("Apply") }
+                    },
+                    enabled = reminderEnabled
+                ) { Text("Save time") }
             }
 
             Divider()
@@ -198,6 +259,10 @@ fun SettingsScreen(
 
             TextButton(onClick = onOpenAppInfo) {
                 Text("App info")
+            }
+
+            TextButton(onClick = onShowOnboarding) {
+                Text("Show welcome screen again")
             }
         }
     }

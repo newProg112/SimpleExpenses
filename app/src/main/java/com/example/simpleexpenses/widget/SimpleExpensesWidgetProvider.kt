@@ -68,8 +68,21 @@ class SimpleExpensesWidgetProvider : AppWidgetProvider() {
             // Root opens app normally
             views.setOnClickPendingIntent(R.id.widget_root, openAppPending)
 
-            // Mileage button also opens app normally for now
-            views.setOnClickPendingIntent(R.id.widget_add_mileage, openAppPending)
+            // ---- Quick Add Mileage ----
+            val quickAddMileageIntent = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                putExtra("open_add_mileage", true)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+
+            val quickAddMileagePending = PendingIntent.getActivity(
+                context,
+                2, // different requestCode
+                quickAddMileageIntent,
+                pendingFlags
+            )
+
+            views.setOnClickPendingIntent(R.id.widget_add_mileage, quickAddMileagePending)
 
             // ---- Quick Add Expense (auto-launch camera) ----
             val quickAddIntent = Intent(context, MainActivity::class.java).apply {
@@ -78,6 +91,7 @@ class SimpleExpensesWidgetProvider : AppWidgetProvider() {
                 putExtra("open_add_expense_camera", true)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
+
 
             val quickAddPending = PendingIntent.getActivity(
                 context,

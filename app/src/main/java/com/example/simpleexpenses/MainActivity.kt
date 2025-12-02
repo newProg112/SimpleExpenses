@@ -1,5 +1,6 @@
 package com.example.simpleexpenses
 
+import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -28,6 +29,7 @@ import com.example.simpleexpenses.ui.ExpenseListScreen
 import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
 import com.example.simpleexpenses.ui.MileageRoute
+import com.example.simpleexpenses.ui.OnboardingScreen
 import com.example.simpleexpenses.ui.SimpleExpensesTheme
 
 class MainActivity : ComponentActivity() {
@@ -50,13 +52,50 @@ class MainActivity : ComponentActivity() {
                     val nav = rememberNavController()
                     val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
 
+                    val context = LocalContext.current
+                    val prefs = remember {
+                        context.getSharedPreferences("simple_expenses_prefs", Context.MODE_PRIVATE)
+                    }
+
+                    // onboarding flag
+                    var hasSeenOnboarding by remember {
+                        mutableStateOf(prefs.getBoolean("onboarding_complete", false))
+                    }
+
                     // work out which screen to start on
                     val openAddExpense = remember {
                         intent?.getBooleanExtra("open_add_expense", false) == true
                     }
-                    val startRoute = if (openAddExpense) "edit" else "activity" // "list"
+                    val openAddMileage = remember {
+                        intent?.getBooleanExtra("open_add_mileage", false) == true
+                    }
+
+                    val startRoute = when {
+                        openAddExpense -> "edit"        // widget quick-add expense
+                        openAddMileage -> "mileage"     // widget quick-add mileage
+                        !hasSeenOnboarding -> "onboarding"
+                        else -> "activity"
+                    }
 
                     NavHost(navController = nav, startDestination = startRoute) {
+                        composable("onboarding") {
+                            OnboardingScreen(
+                                onFinished = {
+                                    // mark onboarding as complete
+                                    prefs.edit()
+                                        .putBoolean("onboarding_complete", true)
+                                        .apply()
+
+                                    hasSeenOnboarding = true
+
+                                    // navigate to main Activity screen and remove onboarding from back stack
+                                    nav.navigate("activity") {
+                                        popUpTo("onboarding") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+
                         composable("activity") {
                             val context = LocalContext.current.applicationContext
                             val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
@@ -182,6 +221,9 @@ class MainActivity : ComponentActivity() {
                                 themeMode = themeMode,
                                 onThemeChange = { newMode -> themeMode = newMode },
                                 onOpenAppInfo = { nav.navigate("app_info") },
+                                onShowOnboarding = {
+                                    nav.navigate("onboarding")
+                                },
                                 onBack = { nav.popBackStack() }
                             )
                         }
