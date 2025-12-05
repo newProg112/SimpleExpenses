@@ -457,6 +457,27 @@ fun CombinedActivityScreen(
                                         ) {
                                             Spacer(modifier = Modifier.weight(1f))
 
+                                            // NEW: attachment count badge
+                                            val attachmentsCount =
+                                                dayItem.e.attachmentUris.size.takeIf { it > 0 }
+                                                    ?: if (dayItem.e.hasReceipt && dayItem.e.receiptUri != null) 1 else 0
+
+                                            if (attachmentsCount > 0) {
+                                                AssistChip(
+                                                    onClick = { /* no-op for now */ },
+                                                    label = {
+                                                        Text("📎 $attachmentsCount")
+                                                    },
+                                                    colors = AssistChipDefaults.assistChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                )
+
+                                                Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                                            }
+
+                                            // Existing "Expense" chip
                                             AssistChip(
                                                 onClick = { /* no-op */ },
                                                 label = { Text("Expense") },

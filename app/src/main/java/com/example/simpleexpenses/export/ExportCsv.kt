@@ -87,15 +87,21 @@ object ExportCsv {
             )
 
             val gross = e.amount
-            val ratePercent = e.vatRatePercent       // 👈 per-expense VAT rate
+            val ratePercent = e.vatRatePercent
             val rate = ratePercent / 100.0
 
-            val net = if (rate == 0.0) {
+            // Base NET/VAT from rate
+            val baseNet = if (rate == 0.0) {
                 gross
             } else {
                 gross / (1.0 + rate)
             }
-            val vat = gross - net
+            val baseVat = gross - baseNet
+
+            // Apply stored adjustment (in pence) to VAT, then back-calc NET
+            val vatAdjustment = e.vatAdjustmentPence / 100.0
+            val vat = baseVat + vatAdjustment
+            val net = gross - vat
 
             val grossPence = (gross * 100).roundToInt()
             val netPence = (net * 100).roundToInt()

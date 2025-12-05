@@ -105,6 +105,8 @@ fun MileageEditScreen(
     var note by remember { mutableStateOf("") }
     var showVehicleMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var milesTouched by remember { mutableStateOf(false) }
+    var dateTouched by remember { mutableStateOf(false) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -201,9 +203,7 @@ fun MileageEditScreen(
                         Text("Cancel")
                     }
 
-                    val canSave =
-                        (ui.miles > 0 && from.isNotBlank() && to.isNotBlank()) ||
-                                ui.receiptUri != null
+                    val canSave = ui.miles > 0
 
                     Button(
                         onClick = {
@@ -266,14 +266,24 @@ fun MileageEditScreen(
             var dateText by remember(ui.dateEpochMillis) {
                 mutableStateOf(epochToLocalDate(ui.dateEpochMillis).toString())
             }
+
+            val dateError = dateTouched && runCatching { LocalDate.parse(dateText) }.isFailure
+
             OutlinedTextField(
                 value = dateText,
                 onValueChange = {
                     dateText = it
+                    dateTouched = true
                     runCatching { LocalDate.parse(it) }
                         .onSuccess { vm.onDateChanged(localDateToEpoch(it)) }
                 },
                 label = { Text("Date (YYYY-MM-DD)") },
+                isError = dateError,
+                supportingText = {
+                    if (dateError) {
+                        Text("Please use date format YYYY-MM-DD, e.g. 2025-11-30")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -292,15 +302,24 @@ fun MileageEditScreen(
             )
 
             // Miles (drives live HMRC calc via VM)
+            val milesError = milesTouched && ui.miles <= 0.0
+
             OutlinedTextField(
                 value = if (ui.miles == 0.0) "" else String.format("%.1f", ui.miles),
                 onValueChange = { text ->
+                    milesTouched = true
                     val miles = text.toDoubleOrNull() ?: 0.0
                     vm.onMilesChanged(miles)
                 },
                 label = { Text("Distance (miles)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                isError = milesError,
+                supportingText = {
+                    if (milesError) {
+                        Text("Enter a distance greater than zero, e.g. 3.5")
+                    }
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
             )
 

@@ -8,8 +8,12 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -44,10 +49,15 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 // Helper: convert Expense.date (epoch millis) -> LocalDate
+@RequiresApi(Build.VERSION_CODES.O)
 fun Long.toLocalDate(): LocalDate =
     Instant.ofEpochMilli(this)
         .atZone(ZoneId.systemDefault())
         .toLocalDate()
+
+private enum class ExportKind {
+    COMBINED, EXPENSES, MILEAGE
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @RequiresApi(Build.VERSION_CODES.O)
@@ -73,10 +83,11 @@ fun ExportScreen(
     // Export options
     var fromDateText by remember { mutableStateOf("") }   // "YYYY-MM-DD"
     var toDateText by remember { mutableStateOf("") }
-    var includeExpenses by remember { mutableStateOf(true) }
-    var includeMileage by remember { mutableStateOf(true) }
+    var useDateRange by remember { mutableStateOf(false) }
 
-    var targetUri by remember { mutableStateOf<Uri?>(null) }
+    var exportKind by remember { mutableStateOf<ExportKind?>(null) }
+    var pendingFileName by remember { mutableStateOf<String?>(null) }
+    var lastExportSummary by remember { mutableStateOf<String?>(null) }
 
     fun parseDateOrNull(text: String): LocalDate? =
         text.takeIf { it.isNotBlank() }?.let {
@@ -89,41 +100,71 @@ fun ExportScreen(
         return okFrom && okTo
     }
 
+    fun buildFileName(kind: ExportKind): String {
+        val today = LocalDate.now()
+        val dateStr = today.toString() // YYYY-MM-DD
+        return when (kind) {
+            ExportKind.COMBINED -> "simple-expenses-all-$dateStr.csv"
+            ExportKind.EXPENSES -> "simple-expenses-expenses-$dateStr.csv"
+            ExportKind.MILEAGE -> "simple-expenses-mileage-$dateStr.csv"
+        }
+    }
+
     val saver = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        targetUri = uri
-        if (uri != null) {
-            scope.launch {
-                // Validate dates first
-                val fromDate = parseDateOrNull(fromDateText)
-                val toDate = parseDateOrNull(toDateText)
+    ) { uri: Uri? ->
+        val kind = exportKind
+        val fileName = pendingFileName
 
-                if ((fromDateText.isNotBlank() && fromDate == null) ||
-                    (toDateText.isNotBlank() && toDate == null)
+        if (uri != null && kind != null) {
+            scope.launch {
+                // Validate dates if we're using a range
+                val fromDate = if (useDateRange) parseDateOrNull(fromDateText) else null
+                val toDate = if (useDateRange) parseDateOrNull(toDateText) else null
+
+                if (useDateRange &&
+                    ((fromDateText.isNotBlank() && fromDate == null) ||
+                            (toDateText.isNotBlank() && toDate == null))
                 ) {
                     snackbar.showSnackbar("Please use date format YYYY-MM-DD")
                     return@launch
                 }
 
-                if (!includeExpenses && !includeMileage) {
-                    snackbar.showSnackbar("Select at least one: Expenses or Mileage")
-                    return@launch
-                }
-
                 // Apply filters
                 val exportExpenses =
-                    if (!includeExpenses) emptyList()
-                    else expenses.filter { e ->
-                        val eDate = e.timestamp.toLocalDate()
-                        inRange(eDate, fromDate, toDate)
+                    when (kind) {
+                        ExportKind.EXPENSES, ExportKind.COMBINED -> {
+                            expenses.filter { e ->
+                                val eDate = e.timestamp.toLocalDate()
+                                inRange(eDate, fromDate, toDate)
+                            }
+                        }
+                        ExportKind.MILEAGE -> emptyList()
+                        null -> emptyList()
                     }
 
                 val exportMileage =
-                    if (!includeMileage) emptyList()
-                    else mileage.filter { m ->
-                        inRange(m.date, fromDate, toDate)
+                    when (kind) {
+                        ExportKind.MILEAGE, ExportKind.COMBINED -> {
+                            mileage.filter { m ->
+                                val mDate = m.date
+                                inRange(mDate, fromDate, toDate)
+                            }
+                        }
+                        ExportKind.EXPENSES -> emptyList()
+                        null -> emptyList()
                     }
+
+                if (exportExpenses.isEmpty() && exportMileage.isEmpty()) {
+                    snackbar.showSnackbar(
+                        if (useDateRange) {
+                            "Nothing to export in this date range"
+                        } else {
+                            "Nothing to export"
+                        }
+                    )
+                    return@launch
+                }
 
                 try {
                     val csv = ExportCsv.buildFromExpensesAndMileage(exportExpenses, exportMileage)
@@ -131,14 +172,30 @@ fun ExportScreen(
                         out.write(csv.toByteArray(Charsets.UTF_8))
                         out.flush()
                     }
-                    snackbar.showSnackbar(
-                        "Exported ${exportExpenses.size} expenses, ${exportMileage.size} mileage rows"
-                    )
+
+                    val summary = when (kind) {
+                        ExportKind.COMBINED ->
+                            "Exported ${exportExpenses.size} expenses and ${exportMileage.size} mileage rows"
+                        ExportKind.EXPENSES ->
+                            "Exported ${exportExpenses.size} expenses"
+                        ExportKind.MILEAGE ->
+                            "Exported ${exportMileage.size} mileage rows"
+                    } + (if (fileName != null) " → $fileName" else "")
+
+                    lastExportSummary = summary
+                    snackbar.showSnackbar(summary)
                 } catch (t: Throwable) {
                     snackbar.showSnackbar("Export failed: ${t.message}")
                 }
             }
         }
+    }
+
+    fun startExport(kind: ExportKind) {
+        exportKind = kind
+        val name = buildFileName(kind)
+        pendingFileName = name
+        saver.launch(name)
     }
 
     Scaffold(
@@ -152,77 +209,140 @@ fun ExportScreen(
         },
         snackbarHost = { SnackbarHost(hostState = snackbar) }
     ) { pad ->
+        val scrollState = rememberScrollState()
+
         Column(
             Modifier
                 .padding(pad)
                 .padding(16.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                "Create a CSV with your expenses and mileage, filtered by date and type.",
+                "Create CSV files you can open in Excel, Numbers or Google Sheets.",
                 style = MaterialTheme.typography.bodyMedium
             )
 
-            // Date range
+            // Date range toggle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Limit by date range",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        if (useDateRange)
+                            "Only export rows between the dates below."
+                        else
+                            "Turn on to export just a specific period. Off = export everything.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = useDateRange,
+                    onCheckedChange = { useDateRange = it }
+                )
+            }
+
             OutlinedTextField(
                 value = fromDateText,
                 onValueChange = { fromDateText = it },
-                label = { Text("From date (YYYY-MM-DD, optional)") },
+                label = { Text("From date (YYYY-MM-DD)") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                enabled = useDateRange
             )
             OutlinedTextField(
                 value = toDateText,
                 onValueChange = { toDateText = it },
-                label = { Text("To date (YYYY-MM-DD, optional)") },
+                label = { Text("To date (YYYY-MM-DD)") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                enabled = useDateRange
             )
 
-            // What to include
-            Text("Include in export", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = includeExpenses,
-                    onCheckedChange = { includeExpenses = it }
-                )
-                Text("Expenses", modifier = Modifier.padding(start = 4.dp))
-            }
+            Text(
+                "What would you like to export?",
+                style = MaterialTheme.typography.titleMedium
+            )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = includeMileage,
-                    onCheckedChange = { includeMileage = it }
-                )
-                Text("Mileage", modifier = Modifier.padding(start = 4.dp))
-            }
-
+            // Combined export
+            Text(
+                "Expenses + mileage (single CSV)",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "Columns include: date, description, category, NET, VAT, GROSS, mileage details where applicable.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Button(
-                onClick = { saver.launch("simple_expenses_export.csv") },
-                enabled = includeExpenses || includeMileage
+                onClick = { startExport(ExportKind.COMBINED) },
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Export as CSV")
+                Text("Export expenses + mileage")
             }
 
-            if (targetUri != null) {
+            // Expenses only
+            Text(
+                "Expenses only",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "Columns include: date, description, category, NET, VAT, GROSS, payment and receipt info.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = { startExport(ExportKind.EXPENSES) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Export expenses")
+            }
+
+            // Mileage only
+            Text(
+                "Mileage only",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                "Columns include: date, from → to, miles, rate and amount.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = { startExport(ExportKind.MILEAGE) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Export mileage")
+            }
+
+            if (lastExportSummary != null) {
                 Text(
-                    "Last exported: $targetUri",
-                    maxLines = 2,
+                    lastExportSummary!!,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Text(
-                "Tip: leave dates blank to export everything.",
+                "Tip: leave date range off to export everything.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                "After exporting, you can find your CSV in the folder you chose in the save dialog, " +
+                        "using the Files app (e.g. Downloads, Documents or cloud storage).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

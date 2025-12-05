@@ -15,4 +15,15 @@ class Converters {
     @TypeConverter fun fromEpochDay(value: Long?): LocalDate? = value?.let(LocalDate::ofEpochDay)
     @RequiresApi(Build.VERSION_CODES.O)
     @TypeConverter fun localDateToEpochDay(date: LocalDate?): Long? = date?.toEpochDay()
+
+    @TypeConverter
+    fun fromString(value: String?): List<String> {
+        if (value.isNullOrBlank()) return emptyList()
+        return value.split("|")
+    }
+
+    @TypeConverter
+    fun toString(list: List<String>?): String {
+        return list?.joinToString("|") ?: ""
+    }
 }
