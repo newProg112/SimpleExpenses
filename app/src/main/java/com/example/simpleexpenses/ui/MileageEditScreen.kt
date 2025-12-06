@@ -108,6 +108,10 @@ fun MileageEditScreen(
     var milesTouched by remember { mutableStateOf(false) }
     var dateTouched by remember { mutableStateOf(false) }
 
+    // Validation flags
+    var dateIsValid by remember { mutableStateOf(true) }
+    var passengersTouched by remember { mutableStateOf(false) }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
@@ -147,9 +151,31 @@ fun MileageEditScreen(
     fun localDateToEpoch(ld: LocalDate): Long =
         ld.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-    // Derived display currency from vm.liveCostPence
+    // Derived display currency – use HMRC tiered logic if available
     val currency = remember { NumberFormat.getCurrencyInstance() }
-    val poundsString = currency.format(ui.liveCostPence / 100.0)
+
+    // Figure out the estimated reimbursement in pence
+    val estimatedPence: Int = ui.settings?.let { s ->
+        if (s.useHmrc && ui.vehicle == VehicleType.CAR) {
+            val miles = ui.miles.coerceAtLeast(0.0)
+            val thresholdMiles = s.hmrcThresholdMiles.toDouble()
+
+            // First band: up to threshold at first rate
+            val firstBandMiles = miles.coerceAtMost(thresholdMiles)
+            // Second band: anything above threshold at second rate
+            val secondBandMiles = (miles - thresholdMiles).coerceAtLeast(0.0)
+
+            val firstPart = firstBandMiles * s.hmrcFirstRatePence
+            val secondPart = secondBandMiles * s.hmrcSecondRatePence
+
+            (firstPart + secondPart).roundToInt()
+        } else {
+            // Not using HMRC or not a car – fall back to whatever the VM computed
+            ui.liveCostPence
+        }
+    } ?: ui.liveCostPence
+
+    val poundsString = currency.format(estimatedPence / 100.0)
 
     if (editId != null) {
         val existing by vm.entry(editId).collectAsState(initial = null)
@@ -203,10 +229,27 @@ fun MileageEditScreen(
                         Text("Cancel")
                     }
 
-                    val canSave = ui.miles > 0
+                    val canSave = ui.miles > 0 && dateIsValid
 
                     Button(
                         onClick = {
+                            var hasError = false
+
+                            // Distance must be > 0
+                            if (ui.miles <= 0.0) {
+                                milesTouched = true
+                                hasError = true
+                            }
+
+                            if (hasError) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "Please fix the highlighted fields before saving"
+                                    )
+                                }
+                                return@Button
+                            }
+
                             // Build route suffix from From/To
                             val suffix = buildString {
                                 if (from.isNotBlank() || to.isNotBlank()) {
@@ -267,15 +310,23 @@ fun MileageEditScreen(
                 mutableStateOf(epochToLocalDate(ui.dateEpochMillis).toString())
             }
 
-            val dateError = dateTouched && runCatching { LocalDate.parse(dateText) }.isFailure
+            // Show error only after user has touched the field
+            val dateError = dateTouched && !dateIsValid
 
             OutlinedTextField(
                 value = dateText,
-                onValueChange = {
-                    dateText = it
+                onValueChange = { text ->
+                    dateText = text
                     dateTouched = true
-                    runCatching { LocalDate.parse(it) }
-                        .onSuccess { vm.onDateChanged(localDateToEpoch(it)) }
+
+                    runCatching { LocalDate.parse(text) }
+                        .onSuccess { parsed ->
+                            dateIsValid = true
+                            vm.onDateChanged(localDateToEpoch(parsed))
+                        }
+                        .onFailure {
+                            dateIsValid = false
+                        }
                 },
                 label = { Text("Date (YYYY-MM-DD)") },
                 isError = dateError,
@@ -324,12 +375,24 @@ fun MileageEditScreen(
             )
 
             // Passengers
+            val passengersError = passengersTouched && ui.passengers < 0
+
             OutlinedTextField(
-                value = ui.passengers.toString(),
-                onValueChange = { t -> vm.onPassengersChanged(t.toIntOrNull() ?: 0) },
+                value = if (ui.passengers == 0) "" else ui.passengers.toString(),
+                onValueChange = { t ->
+                    passengersTouched = true
+                    val parsed = t.toIntOrNull() ?: 0
+                    vm.onPassengersChanged(parsed.coerceAtLeast(0))
+                },
                 label = { Text("Passengers") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                isError = passengersError,
+                supportingText = {
+                    if (passengersError) {
+                        Text("Passengers cannot be negative")
+                    }
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
@@ -427,11 +490,20 @@ fun MileageEditScreen(
                 }
             }
 
-            // Live total from HMRC calc
-            Text(
-                text = "Estimated reimbursement: $poundsString",
-                style = MaterialTheme.typography.titleMedium
-            )
+            // Live total / HMRC info
+            val hmrcMode = ui.settings?.useHmrc == true && ui.vehicle == VehicleType.CAR
+
+            if (hmrcMode) {
+                Text(
+                    text = "Reimbursement will be calculated using the HMRC 45p / 25p split when you save.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                Text(
+                    text = "Estimated reimbursement: $poundsString",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

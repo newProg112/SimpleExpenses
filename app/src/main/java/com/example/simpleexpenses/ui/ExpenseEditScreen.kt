@@ -145,9 +145,23 @@ fun ExpenseEditScreen(
     var vatAdjustmentPence by rememberSaveable { mutableStateOf(0) }
 
     val doSave: () -> Unit = save@{
-        if (!canSave) return@save
+        // Mark title as touched so the error shows if it's blank
+        titleTouched = true
+
+        // Recalculate validation based on *current* text
+        val currentAmount = amountText.toDoubleOrNull()
+        val currentAmountError = currentAmount == null || currentAmount <= 0.0
+        val currentTitleError = title.isBlank()
+
+        if (currentAmountError || currentTitleError) {
+            // Just show errors and don't save
+            return@save
+        }
+
         scope.launch {
-            val amt = amount ?: return@launch
+            val amt = currentAmount
+            if (amt == null) return@launch  // extra safety, should never hit
+
             val updated = (existing ?: Expense(
                 title = title,
                 amount = amt,

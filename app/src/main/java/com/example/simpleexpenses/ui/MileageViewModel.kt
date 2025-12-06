@@ -21,6 +21,22 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
+@RequiresApi(Build.VERSION_CODES.O)
+private fun hmrcTaxYearRange(date: LocalDate): Pair<LocalDate, LocalDate> {
+    val year = date.year
+    val taxYearStart =
+        if (date.isBefore(LocalDate.of(year, 4, 6)))
+            LocalDate.of(year - 1, 4, 6)
+        else
+            LocalDate.of(year, 4, 6)
+
+    val taxYearEnd = taxYearStart.plusYears(1).minusDays(1)
+    return taxYearStart to taxYearEnd
+}
+
+private fun metersToMiles(meters: Int): Double =
+    meters / 1609.344
+
 data class MileageEditState(
     val dateEpochMillis: Long = System.currentTimeMillis(),
     val miles: Double = 0.0,
@@ -33,6 +49,7 @@ data class MileageEditState(
     val hasReceipt: Boolean = false
 )
 
+@RequiresApi(Build.VERSION_CODES.O)
 class MileageViewModel(
     private val dao: MileageDao,
     private val settingsRepo: SettingsRepository
@@ -51,25 +68,35 @@ class MileageViewModel(
     private var editingId: Long? = null
 
     init {
-        // When settings emit (including the first time), recompute with current inputs
         viewModelScope.launch {
-            settingsRepo.settings.collect { s ->
+            settingsRepo.settings.collect {
+                // Whenever settings change, just recompute using the latest UI state.
                 val st = _ui.value
-                val cost = com.example.simpleexpenses.domain.MileageCalculator
-                    .computeCostPence(st.miles, st.vehicle, st.passengers, s)
-                _ui.value = st.copy(settings = s, liveCostPence = cost)
+                recompute(st)
             }
         }
     }
 
-    fun onMilesChanged(m: Double) = recompute(_ui.value.copy(miles = m))
-    fun onPassengersChanged(p: Int) = recompute(_ui.value.copy(passengers = p))
-    fun onVehicleChanged(v: VehicleType) = recompute(_ui.value.copy(vehicle = v))
+    fun onMilesChanged(m: Double) {
+        val next = _ui.value.copy(miles = m)
+        viewModelScope.launch { recompute(next) }
+    }
+
+    fun onPassengersChanged(p: Int) {
+        val next = _ui.value.copy(passengers = p)
+        viewModelScope.launch { recompute(next) }
+    }
+
+    fun onVehicleChanged(v: VehicleType) {
+        val next = _ui.value.copy(vehicle = v)
+        viewModelScope.launch { recompute(next) }
+    }
+
     fun onNoteChanged(n: String) { _ui.value = _ui.value.copy(note = n) }
 
     fun loadForEdit(existing: MileageClaim?) {
         if (existing == null) return
-        _ui.value = _ui.value.copy(
+        val next = _ui.value.copy(
             dateEpochMillis = existing.dateEpochMillis,
             miles = existing.miles,
             note = existing.note.orEmpty(),
@@ -78,7 +105,7 @@ class MileageViewModel(
             receiptUri = existing.receiptUri,
             hasReceipt = existing.hasReceipt
         )
-        recompute(_ui.value)
+        viewModelScope.launch { recompute(next) }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -86,30 +113,90 @@ class MileageViewModel(
         editingId = id
         if (id != null) {
             dao.observeById(id).firstOrNull()?.let { e ->
-                _ui.value = _ui.value.copy(
-                    dateEpochMillis = e.date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                val next = _ui.value.copy(
+                    dateEpochMillis = e.date
+                        .atStartOfDay(ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli(),
                     miles = (e.distanceMeters / 1609.344),
                     note = e.notes.orElse(""),
                     receiptUri = e.receiptUri,
                     hasReceipt = e.hasReceipt
                 )
-                recompute(_ui.value)
+                recompute(next)
             }
         }
     }
+
     private fun String?.orElse(fallback: String) = this ?: fallback
 
-    private fun recompute(next: MileageEditState) {
-        val s = settings.value
-        val cost = if (s != null)
+    @RequiresApi(Build.VERSION_CODES.O)
+    private suspend fun recompute(next: MileageEditState) {
+        // Use live settings if present, otherwise safe HMRC defaults (same as saveClaim)
+        val s = settings.value ?: MileageRateSettings(
+            useHmrc = true,
+            hmrcThresholdMiles = 10_000,
+            hmrcFirstRatePence = 45,
+            hmrcSecondRatePence = 25,
+            customRatePence = 45,
+            reminderEnabled = false,
+            reminderHour = 19,
+            reminderMinute = 0
+        )
+
+        val useHmrcForThis = s.useHmrc && next.vehicle == VehicleType.CAR
+
+        val cost: Int = if (!useHmrcForThis) {
+            // Non-HMRC or non-car → just use the standard calculator
             MileageCalculator.computeCostPence(next.miles, next.vehicle, next.passengers, s)
-        else 0
-        _ui.value = next.copy(liveCostPence = cost, settings = s)
+        } else {
+            // HMRC + CAR → use YEAR-TO-DATE logic, same as saveClaim
+
+            // Work out tax year containing this date
+            val date = Instant.ofEpochMilli(next.dateEpochMillis)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+            val (taxYearStart, taxYearEnd) = hmrcTaxYearRange(date)
+
+            // Total mileage already claimed this tax year (in meters, then miles)
+            val usedMeters = dao.totalDistanceMetersInRange(taxYearStart, taxYearEnd)
+            val usedMiles = metersToMiles(usedMeters)
+
+            val threshold = s.hmrcThresholdMiles.toDouble()
+
+            // Remaining miles at 45p before hitting 10,000 for the year
+            val remainingAt45 = (threshold - usedMiles).coerceAtLeast(0.0)
+
+            // For THIS claim:
+            val milesAt45 = remainingAt45.coerceIn(0.0, next.miles)
+            val milesAt25 = (next.miles - milesAt45).coerceAtLeast(0.0)
+
+            if (milesAt25 <= 0.0) {
+                // Still under 10,000 for the year → all at 45p
+                (next.miles * s.hmrcFirstRatePence).roundToInt()
+            } else {
+                // We cross the threshold in this claim → split at 45p / 25p
+                (milesAt45 * s.hmrcFirstRatePence).roundToInt() +
+                        (milesAt25 * s.hmrcSecondRatePence).roundToInt()
+            }
+        }
+
+        _ui.value = next.copy(
+            liveCostPence = cost,
+            settings = s
+        )
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
     fun saveClaim(editId: Long? = null, from: String = "", to: String = "") =
         viewModelScope.launch {
+            // Basic validation – don't save empty claims
+            val st = _ui.value
+            if (st.miles <= 0.0) {
+                android.util.Log.d("MileageSave", "Refusing to save: miles <= 0")
+                return@launch
+            }
+
             // Use live settings if present, otherwise safe defaults so we still save
             val s = settings.value ?: MileageRateSettings(
                 useHmrc = true,
@@ -122,41 +209,110 @@ class MileageViewModel(
                 reminderMinute = 0
             )
 
-            val st = _ui.value
-            val cost = MileageCalculator.computeCostPence(st.miles, st.vehicle, st.passengers, s)
             val date = Instant.ofEpochMilli(st.dateEpochMillis)
-                .atZone(ZoneId.systemDefault()).toLocalDate()
-            val distanceMeters = (st.miles * 1609.344).roundToInt()
-            val rateForEntry =
-                if (s.useHmrc && st.vehicle == VehicleType.CAR) s.hmrcFirstRatePence else s.customRatePence
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
 
-            // Critical: prefer the explicit editId (from screen) then the remembered editingId
-            val targetId: Long? = editId ?: editingId
+            // ---- HMRC auto-split logic (cars only, when HMRC mode is on) ----
+            val useHmrcForThis =
+                s.useHmrc && st.vehicle == VehicleType.CAR
 
-            val entry = MileageEntry(
-                id = targetId ?: 0L, // 0L => insert; otherwise update
-                date = date,
-                fromLabel = if (from.isBlank()) "?" else from,
-                toLabel   = if (to.isBlank()) "?" else to,
-                distanceMeters = distanceMeters,
-                ratePencePerMile = rateForEntry,
-                amountPence = cost,
-                notes = st.note.ifBlank { null },
-                receiptUri = st.receiptUri,
-                hasReceipt = st.hasReceipt
-            )
+            val (taxYearStart, taxYearEnd) = hmrcTaxYearRange(date)
 
-            // Your @Upsert may return Unit; that’s fine—we still wrote the row
-            dao.upsert(entry)
+            // This is a suspend DAO call, so it MUST be inside this launch { } block
+            val usedMeters = dao.totalDistanceMetersInRange(taxYearStart, taxYearEnd)
+            val usedMiles = metersToMiles(usedMeters)
 
-            // If we just inserted (targetId == null), remember that future saves should update.
-            // We can’t know the new id here if @Upsert returns Unit, so we’ll rely on the
-            // edit route passing id for edits; this path mainly matters on new rows.
-            if (targetId != null) editingId = targetId
+            val threshold = s.hmrcThresholdMiles.toDouble()
+
+            // How many miles at 45p are still available in this tax year?
+            val remainingAt45 = (threshold - usedMiles).coerceAtLeast(0.0)
+
+            // Miles at first rate (45p) – can't exceed this trip's miles
+            val milesAt45 = if (useHmrcForThis) {
+                remainingAt45.coerceIn(0.0, st.miles)
+            } else {
+                0.0
+            }
+
+            // Miles at second rate (25p) – whatever's left
+            val milesAt25 = if (useHmrcForThis) {
+                (st.miles - milesAt45).coerceAtLeast(0.0)
+            } else {
+                0.0
+            }
+
+            // If not using HMRC or not CAR, treat everything at the custom rate
+            val useSingleCustomRate = !useHmrcForThis
+
+            fun passengersBonusPence(miles: Double): Int {
+                // If your MileageCalculator already handles passengers, you can just
+                // call that instead; for now we assume the rate is per-mile only.
+                return 0
+            }
+
+            // Helper to save one entry
+            suspend fun saveEntry(
+                miles: Double,
+                rate: Int,
+                noteSuffix: String?
+            ) {
+                if (miles <= 0.0) return
+
+                val meters = (miles * 1609.344).roundToInt()
+                val amount = (miles * rate).roundToInt() + passengersBonusPence(miles)
+
+                dao.upsert(
+                    MileageEntry(
+                        id = 0L, // always insert for auto-split claims
+                        date = date,
+                        fromLabel = if (from.isBlank()) "?" else from,
+                        toLabel = if (to.isBlank()) "?" else to,
+                        distanceMeters = meters,
+                        ratePencePerMile = rate,
+                        amountPence = amount,
+                        notes = st.note
+                            .takeIf { it.isNotBlank() }
+                            ?.let { base -> if (noteSuffix != null) base + noteSuffix else base },
+                        receiptUri = st.receiptUri,
+                        hasReceipt = st.hasReceipt
+                    )
+                )
+            }
+
+            if (useSingleCustomRate) {
+                // Everything at custom rate (no HMRC split)
+                saveEntry(
+                    miles = st.miles,
+                    rate = s.customRatePence,
+                    noteSuffix = null
+                )
+            } else {
+                if (milesAt25 == 0.0) {
+                    // We haven't crossed 10,000 miles in this tax year yet – single 45p entry
+                    saveEntry(
+                        miles = st.miles,
+                        rate = s.hmrcFirstRatePence,
+                        noteSuffix = null
+                    )
+                } else {
+                    // Crosses the threshold → auto-split into two entries
+                    saveEntry(
+                        miles = milesAt45,
+                        rate = s.hmrcFirstRatePence,
+                        noteSuffix = " (HMRC split: up to 10,000 miles)"
+                    )
+                    saveEntry(
+                        miles = milesAt25,
+                        rate = s.hmrcSecondRatePence,
+                        noteSuffix = " (HMRC split: over 10,000 miles)"
+                    )
+                }
+            }
 
             android.util.Log.d(
                 "MileageSave",
-                "Saved id=${targetId ?: 0L} date=$date miles=${st.miles} costP=$cost from='$from' to='$to'"
+                "Saved HMRC auto-split claim for date=$date totalMiles=${st.miles} from='$from' to '$to'"
             )
         }
 

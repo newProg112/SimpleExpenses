@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.androidx.foundation)
     implementation(libs.vision.common)
     implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.benchmark.traceprocessor)
     // implementation(libs.play.services.mlkit.text.recognition.common)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

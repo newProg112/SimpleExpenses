@@ -38,4 +38,11 @@ interface MileageDao {
 
     @Query("SELECT * FROM mileage_entries WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): MileageEntry?
+
+    @Query("""
+    SELECT COALESCE(SUM(distanceMeters), 0)
+    FROM mileage_entries
+    WHERE date BETWEEN :from AND :to
+    """)
+    suspend fun totalDistanceMetersInRange(from: LocalDate, to: LocalDate): Int
 }
