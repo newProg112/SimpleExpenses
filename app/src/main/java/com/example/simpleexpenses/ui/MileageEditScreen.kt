@@ -241,6 +241,12 @@ fun MileageEditScreen(
                                 hasError = true
                             }
 
+                            // Date must be valid
+                            if (!dateIsValid) {
+                                dateTouched = true
+                                hasError = true
+                            }
+
                             if (hasError) {
                                 scope.launch {
                                     snackbarHostState.showSnackbar(

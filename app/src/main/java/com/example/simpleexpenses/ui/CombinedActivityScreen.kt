@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -71,7 +72,7 @@ sealed class CombinedItem {
     data class MileageItem(val m: MileageEntry) : CombinedItem()
 }
 
-enum class CombinedFilter { ALL, EXPENSES, MILEAGE }
+enum class CombinedFilter { ALL, EXPENSES, MILEAGE, MISSING_RECEIPTS }
 
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,6 +101,10 @@ fun CombinedActivityScreen(
                 expenses.map { CombinedItem.ExpenseItem(it) }
             CombinedFilter.MILEAGE ->
                 mileage.map { CombinedItem.MileageItem(it) }
+            CombinedFilter.MISSING_RECEIPTS ->
+                expenses
+                    .filter { !it.hasReceipt }
+                    .map { CombinedItem.ExpenseItem(it) }
         }
 
         list.sortedByDescending { item ->
@@ -274,6 +279,11 @@ fun CombinedActivityScreen(
                     onClick = { filter = CombinedFilter.MILEAGE },
                     label = { Text("Mileage") }
                 )
+                FilterChip(
+                    selected = filter == CombinedFilter.MISSING_RECEIPTS,
+                    onClick = { filter = CombinedFilter.MISSING_RECEIPTS },
+                    label = { Text("Missing receipts") }
+                )
             }
 
             Divider()
@@ -383,16 +393,35 @@ fun CombinedActivityScreen(
 
                 // --- Missing receipts card ---
                 if (missingReceipts > 0) {
+                    val isActive = filter == CombinedFilter.MISSING_RECEIPTS
+
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { filter = CombinedFilter.MISSING_RECEIPTS },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isActive)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.errorContainer
+                        )
                     ) {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Missing receipts", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Missing receipts",
+                                style = MaterialTheme.typography.titleSmall
+                            )
                             Text(
                                 "$missingReceipts expense(s)",
                                 style = MaterialTheme.typography.bodyLarge
                             )
+                            if (!isActive) {
+                                Text(
+                                    "Tap to show only expenses missing receipts",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                         }
                     }
                 }
@@ -413,128 +442,196 @@ fun CombinedActivityScreen(
                 }.toSortedMap(compareByDescending { it }) // latest date at the top
             }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                groupedByDate.forEach { (date, dayItems) ->
-                    // Date header row
-                    item(key = "header_$date") {
-                        ActivityDateHeader(date)
-                    }
+            if (items.isEmpty()) {
+                // Empty state when there are no items for the current filter
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = when (filter) {
+                            CombinedFilter.MISSING_RECEIPTS ->
+                                "Nice! No expenses are missing receipts."
+                            CombinedFilter.EXPENSES ->
+                                "No expenses logged yet."
+                            CombinedFilter.MILEAGE ->
+                                "No mileage trips logged yet."
+                            CombinedFilter.ALL ->
+                                "No activity yet."
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
 
-                    // Items for that date
-                    items(
-                        items = dayItems,
-                        key = { dayItem ->
-                            when (dayItem) {
-                                is CombinedItem.ExpenseItem -> "expense_${dayItem.e.id}"
-                                is CombinedItem.MileageItem -> "mileage_${dayItem.m.id}"
+                    Spacer(modifier = Modifier.padding(4.dp))
+
+                    Text(
+                        text = when (filter) {
+                            CombinedFilter.MISSING_RECEIPTS ->
+                                "Attach receipts from the editor screen to clear this."
+                            CombinedFilter.EXPENSES ->
+                                "Tap £ to add your first expense."
+                            CombinedFilter.MILEAGE ->
+                                "Tap mi to add your first mileage trip."
+                            CombinedFilter.ALL ->
+                                "Use £ or mi below to start logging."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    groupedByDate.forEach { (date, dayItems) ->
+
+                        // Calculate total for this date (expenses + mileage)
+                        val dayTotal = dayItems.sumOf { item ->
+                            when (item) {
+                                is CombinedItem.ExpenseItem -> item.e.amount
+                                is CombinedItem.MileageItem -> item.m.amountPence / 100.0
                             }
                         }
-                    ) { dayItem ->
-                        when (dayItem) {
-                            is CombinedItem.ExpenseItem ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                                ) {
-                                    Column(
+
+                        // Date header row with total
+                        item(key = "header_$date") {
+                            ActivityDateHeader(
+                                date = date,
+                                totalAmount = dayTotal
+                            )
+                        }
+
+                        // Items for that date
+                        items(
+                            items = dayItems,
+                            key = { dayItem ->
+                                when (dayItem) {
+                                    is CombinedItem.ExpenseItem -> "expense_${dayItem.e.id}"
+                                    is CombinedItem.MileageItem -> "mileage_${dayItem.m.id}"
+                                }
+                            }
+                        ) { dayItem ->
+                            when (dayItem) {
+                                is CombinedItem.ExpenseItem ->
+                                    Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(top = 4.dp, bottom = 4.dp)
+                                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                                     ) {
-                                        // Chip row (top-right)
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(top = 4.dp, bottom = 4.dp)
                                         ) {
-                                            Spacer(modifier = Modifier.weight(1f))
+                                            // Chip row (top-right)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Spacer(modifier = Modifier.weight(1f))
 
-                                            // NEW: attachment count badge
-                                            val attachmentsCount =
-                                                dayItem.e.attachmentUris.size.takeIf { it > 0 }
-                                                    ?: if (dayItem.e.hasReceipt && dayItem.e.receiptUri != null) 1 else 0
+                                                // 🔴 Missing receipt chip
+                                                if (!dayItem.e.hasReceipt) {
+                                                    AssistChip(
+                                                        onClick = { /* no-op */ },
+                                                        label = { Text("Missing receipt") },
+                                                        colors = AssistChipDefaults.assistChipColors(
+                                                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                                                            labelColor = MaterialTheme.colorScheme.onErrorContainer
+                                                        )
+                                                    )
 
-                                            if (attachmentsCount > 0) {
+                                                    Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                                                }
+
+                                                // Attachment count badge
+                                                val attachmentsCount =
+                                                    dayItem.e.attachmentUris.size.takeIf { it > 0 }
+                                                        ?: if (dayItem.e.hasReceipt && dayItem.e.receiptUri != null) 1 else 0
+
+                                                if (attachmentsCount > 0) {
+                                                    AssistChip(
+                                                        onClick = { /* no-op for now */ },
+                                                        label = {
+                                                            Text("📎 $attachmentsCount")
+                                                        },
+                                                        colors = AssistChipDefaults.assistChipColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    )
+
+                                                    Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                                                }
+
+                                                // "Expense" chip
                                                 AssistChip(
-                                                    onClick = { /* no-op for now */ },
-                                                    label = {
-                                                        Text("📎 $attachmentsCount")
-                                                    },
+                                                    onClick = { /* no-op */ },
+                                                    label = { Text("Expense") },
                                                     colors = AssistChipDefaults.assistChipColors(
-                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
                                                     )
                                                 )
-
-                                                Spacer(modifier = Modifier.padding(horizontal = 4.dp))
                                             }
 
-                                            // Existing "Expense" chip
-                                            AssistChip(
-                                                onClick = { /* no-op */ },
-                                                label = { Text("Expense") },
-                                                colors = AssistChipDefaults.assistChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                                )
+                                            // Existing row content
+                                            ExpenseRow(
+                                                item = dayItem.e,
+                                                onClick = { onExpenseClick(dayItem.e.id) }
                                             )
                                         }
-
-                                        // Existing row content
-                                        ExpenseRow(
-                                            item = dayItem.e,
-                                            onClick = { onExpenseClick(dayItem.e.id) }
-                                        )
                                     }
-                                }
 
-                            is CombinedItem.MileageItem ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                                ) {
-                                    Column(
+                                is CombinedItem.MileageItem ->
+                                    Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(top = 4.dp, bottom = 4.dp)
+                                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                                     ) {
-                                        // Chip row (top-right)
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(top = 4.dp, bottom = 4.dp)
                                         ) {
-                                            Spacer(modifier = Modifier.weight(1f))
+                                            // Chip row (top-right)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Spacer(modifier = Modifier.weight(1f))
 
-                                            AssistChip(
-                                                onClick = { /* no-op */ },
-                                                label = { Text("Mileage") },
-                                                colors = AssistChipDefaults.assistChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                AssistChip(
+                                                    onClick = { /* no-op */ },
+                                                    label = { Text("Mileage") },
+                                                    colors = AssistChipDefaults.assistChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
                                                 )
+                                            }
+
+                                            // Existing row content
+                                            MileageRow(
+                                                item = dayItem.m,
+                                                onClick = { onMileageClick(dayItem.m.id) }
                                             )
                                         }
-
-                                        // Existing row content
-                                        MileageRow(
-                                            item = dayItem.m,
-                                            onClick = { onMileageClick(dayItem.m.id) }
-                                        )
                                     }
-                                }
+                            }
                         }
                     }
                 }
@@ -545,9 +642,15 @@ fun CombinedActivityScreen(
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-private fun ActivityDateHeader(date: LocalDate) {
+private fun ActivityDateHeader(
+    date: LocalDate,
+    totalAmount: Double
+) {
     val formatter = remember {
         DateTimeFormatter.ofPattern("EEE d MMM") // e.g. "Mon 17 Nov"
+    }
+    val currency = remember {
+        java.text.NumberFormat.getCurrencyInstance()
     }
 
     Surface(
@@ -557,12 +660,20 @@ private fun ActivityDateHeader(date: LocalDate) {
         color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 1.dp
     ) {
-        Text(
-            text = date.format(formatter),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-        )
+        ) {
+            Text(
+                text = date.format(formatter),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = currency.format(totalAmount),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
