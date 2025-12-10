@@ -32,14 +32,14 @@ object ExportCsv {
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
 
-            // Treat amountPence as gross
+            // Treat mileage as non-VATable: NET = GROSS, VAT = 0
             val gross = m.amountPence / 100.0
-            val net = gross / 1.20
-            val vat = gross - net
+            val net = gross
+            val vat = 0.0
 
             val grossPence = m.amountPence
-            val netPence = (net * 100.0).roundToInt()
-            val vatPence = (vat * 100.0).roundToInt()
+            val netPence = grossPence
+            val vatPence = 0
 
             sb.appendLine(
                 listOf(
@@ -139,7 +139,7 @@ object ExportCsv {
 
         sb.appendLine()
 
-        // --- Mileage section (still uses fixed 20% VAT on mileage amounts) ---
+        // --- Mileage section (non-VATable: NET = GROSS, VAT = 0) ---
         sb.appendLine("# Mileage")
         sb.appendLine(
             "date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes"
@@ -148,14 +148,14 @@ object ExportCsv {
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
 
-            // Treat amountPence as gross
+            // Treat mileage as non-VATable: NET = GROSS, VAT = 0
             val gross = m.amountPence / 100.0
-            val net = gross / 1.20
-            val vat = gross - net
+            val net = gross
+            val vat = 0.0
 
             val grossPence = m.amountPence
-            val netPence = (net * 100.0).roundToInt()
-            val vatPence = (vat * 100.0).roundToInt()
+            val netPence = grossPence
+            val vatPence = 0
 
             sb.appendLine(
                 listOf(

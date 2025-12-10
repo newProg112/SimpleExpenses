@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -57,6 +60,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -79,10 +83,15 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
 import com.example.simpleexpenses.ocr.ReceiptOcrHelper
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ExpenseEditScreen(
@@ -97,7 +106,6 @@ fun ExpenseEditScreen(
     val paymentMethods = listOf("Personal", "CompanyCard")
 
     // Local state (saveable across rotation)
-    var title by rememberSaveable { mutableStateOf("") }
     var amountText by rememberSaveable { mutableStateOf("") }
 
     var amountFromOcr by rememberSaveable { mutableStateOf(false) }
@@ -106,15 +114,16 @@ fun ExpenseEditScreen(
 
     var status by rememberSaveable { mutableStateOf(ExpenseStatus.Submitted) }
 
-    var titleTouched by rememberSaveable { mutableStateOf(false) }
-
-    var category by rememberSaveable { mutableStateOf("General") }
+    var category by rememberSaveable { mutableStateOf(ExpenseDefaults.category) }
     var merchant by rememberSaveable { mutableStateOf("") }
     var merchantExpanded by remember { mutableStateOf(false) }
     var merchantSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var notes by rememberSaveable { mutableStateOf("") }
-    var reimbursable by rememberSaveable { mutableStateOf(true) }
-    var paymentMethod by rememberSaveable { mutableStateOf("Personal") }
+    var reimbursable by rememberSaveable { mutableStateOf(ExpenseDefaults.reimbursable) }
+    var paymentMethod by rememberSaveable { mutableStateOf(ExpenseDefaults.paymentMethod) }
+
+    var vatRatePercent by rememberSaveable { mutableStateOf(ExpenseDefaults.vatRatePercent) }
+    var vatAdjustmentPence by rememberSaveable { mutableStateOf(0) }
 
     var existing by remember { mutableStateOf<Expense?>(null) }
     val scope = rememberCoroutineScope()
@@ -133,41 +142,54 @@ fun ExpenseEditScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     // Validation
-    val amount = amountText.toDoubleOrNull()
-    val amountError = amount == null || amount <= 0.0
+    val amountError = amountText.toDoubleOrNull()?.let { it <= 0.0 } ?: true
+    val canSave = !amountError
 
-    val titleError = titleTouched && title.isBlank()
+    // Date handling
+    val dateFormatter = remember {
+        DateTimeFormatter.ofPattern("d MMM yyyy") // e.g. "9 Dec 2025"
+    }
 
-    val canSave = !titleError && !amountError
+    var dateMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
 
-    var vatRatePercent by rememberSaveable { mutableStateOf(20) }
+    val selectedDate: LocalDate = remember(dateMillis) {
+        Instant.ofEpochMilli(dateMillis)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+    }
 
-    var vatAdjustmentPence by rememberSaveable { mutableStateOf(0) }
+    // For showing a Material3 DatePicker dialog
+    var showDatePicker by remember { mutableStateOf(false) }
 
-    val doSave: () -> Unit = save@{
-        // Mark title as touched so the error shows if it's blank
-        titleTouched = true
-
+    val doSave: () -> Unit = doSave@{
         // Recalculate validation based on *current* text
         val currentAmount = amountText.toDoubleOrNull()
         val currentAmountError = currentAmount == null || currentAmount <= 0.0
-        val currentTitleError = title.isBlank()
 
-        if (currentAmountError || currentTitleError) {
+        if (currentAmountError) {
             // Just show errors and don't save
-            return@save
+            return@doSave
         }
 
         scope.launch {
             val amt = currentAmount
             if (amt == null) return@launch  // extra safety, should never hit
 
+            // Auto-generate a title for list/export:
+            // Prefer "Merchant – Category", then Merchant, then Category, then "Expense"
+            val autoTitle = when {
+                merchant.isNotBlank() && category.isNotBlank() -> "${merchant.trim()} – ${category.trim()}"
+                merchant.isNotBlank() -> merchant.trim()
+                category.isNotBlank() -> category.trim()
+                else -> "Expense"
+            }
+
             val updated = (existing ?: Expense(
-                title = title,
+                title = autoTitle,
                 amount = amt,
                 status = status
             )).copy(
-                title = title,
+                title = autoTitle,
                 amount = amt,
                 status = status,
                 category = category,
@@ -183,7 +205,22 @@ fun ExpenseEditScreen(
                 vatAdjustmentPence = vatAdjustmentPence,
                 vatRatePercent = vatRatePercent
             )
-            if (existing == null) viewModel.add(updated) else viewModel.update(updated)
+
+            if (existing == null) {
+                // New expense – save and remember these as the new defaults
+                viewModel.add(updated)
+
+                ExpenseDefaults.apply {
+                    category = updated.category
+                    reimbursable = updated.reimbursable
+                    paymentMethod = updated.paymentMethod
+                    vatRatePercent = updated.vatRatePercent
+                }
+            } else {
+                // Editing existing – just update
+                viewModel.update(updated)
+            }
+
             onDone()
         }
     }
@@ -220,7 +257,6 @@ fun ExpenseEditScreen(
         if (expenseId != null) {
             viewModel.get(expenseId)?.let { e ->
                 existing = e
-                title = e.title
                 amountText = e.amount.toString()
                 status = e.status
                 category = e.category
@@ -239,6 +275,7 @@ fun ExpenseEditScreen(
 
                 vatRatePercent = e.vatRatePercent
                 vatAdjustmentPence = e.vatAdjustmentPence
+                dateMillis = e.timestamp
             }
         } else if (!initialReceiptUri.isNullOrBlank()) {
             // New expense launched with a receipt (quick add)
@@ -326,30 +363,25 @@ fun ExpenseEditScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // Title
-            OutlinedTextField(
-                value = title,
-                onValueChange = {
-                    title = it
-                    if (!titleTouched) titleTouched = true
-                },
-                label = { Text("Title") },
-                isError = titleError,
-                supportingText = {
-                    if (titleError) Text("Title can’t be empty")
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(
-                    onNext = {
-                        if (!titleTouched) titleTouched = true
-                        focus.moveFocus(FocusDirection.Down)
-                    }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Date",
+                    style = MaterialTheme.typography.labelLarge
                 )
-            )
 
-            Spacer(Modifier.height(12.dp))
+                Spacer(modifier = Modifier.weight(1f))
+
+                TextButton(onClick = { showDatePicker = true }) {
+                    Text(selectedDate.format(dateFormatter))
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
 
             // Amount
             OutlinedTextField(
@@ -688,6 +720,36 @@ fun ExpenseEditScreen(
         }
     }
 
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = dateMillis
+        )
+
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newMillis = pickerState.selectedDateMillis
+                        if (newMillis != null) {
+                            dateMillis = newMillis
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+
     if (showDeleteConfirm && expenseId != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -698,10 +760,17 @@ fun ExpenseEditScreen(
                     onClick = {
                         showDeleteConfirm = false
                         scope.launch {
+                            val inferredTitle = existing?.title
+                                ?: merchant.takeIf { it.isNotBlank() }
+                                ?: category.takeIf { it.isNotBlank() }
+                                ?: "-"
+
+                            val inferredAmount = amountText.toDoubleOrNull() ?: 0.0
+
                             val toDelete = existing ?: Expense(
                                 id = expenseId,
-                                title = if (title.isBlank()) "-" else title,
-                                amount = amount ?: 0.0,
+                                title = inferredTitle,
+                                amount = inferredAmount,
                                 status = status
                             )
                             viewModel.delete(toDelete)

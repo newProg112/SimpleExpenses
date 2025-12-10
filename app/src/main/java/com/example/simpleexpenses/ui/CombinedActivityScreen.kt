@@ -18,16 +18,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -42,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -139,6 +144,8 @@ fun CombinedActivityScreen(
 
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
+    var showAddDialog by remember { mutableStateOf(false) }
+
     val cameraLauncherForDraft = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -227,10 +234,24 @@ fun CombinedActivityScreen(
         },
         floatingActionButton = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                // 📷 New expense from photo
+                // 🔝 Top: "+" FAB – opens the claim type chooser
+                FloatingActionButton(
+                    onClick = {
+                        // Use whatever you currently use to show the dialog:
+                        // e.g. showNewClaimDialog = true or showAddDialog = true
+                        showAddDialog = true
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "New claim"
+                    )
+                }
+
+                // 🔻 Bottom: larger camera FAB for quick in-field capture
                 FloatingActionButton(
                     onClick = {
                         val uri = createImageUri(context)
@@ -238,17 +259,14 @@ fun CombinedActivityScreen(
                         if (uri != null) {
                             cameraLauncherForDraft.launch(uri)
                         }
-                    }
+                    },
+                    modifier = Modifier.size(72.dp) // bigger touch target than default
                 ) {
                     Icon(
                         imageVector = Icons.Filled.PhotoCamera,
                         contentDescription = "New expense from photo"
                     )
                 }
-
-                // Existing FABs
-                FloatingActionButton(onClick = onAddExpense) { Text("£") }
-                FloatingActionButton(onClick = onAddMileage) { Text("mi") }
             }
         }
     ) { pad ->
@@ -637,6 +655,45 @@ fun CombinedActivityScreen(
                 }
             }
         }
+    }
+
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("New claim") },
+            text = { Text("What would you like to add?") },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            showAddDialog = false
+                            onAddExpense()   // use callback instead of nav.navigate("edit")
+                        }
+                    ) {
+                        Text("Expense")
+                    }
+
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            showAddDialog = false
+                            onAddMileage()   // use callback instead of nav.navigate("mileage")
+                        }
+                    ) {
+                        Text("Mileage")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

@@ -268,6 +268,46 @@ fun ExportScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // --- Live preview of what will be exported ---
+            val previewFromDate = if (useDateRange) parseDateOrNull(fromDateText) else null
+            val previewToDate = if (useDateRange) parseDateOrNull(toDateText) else null
+
+            val hasDateError =
+                useDateRange && (
+                        (fromDateText.isNotBlank() && previewFromDate == null) ||
+                                (toDateText.isNotBlank() && previewToDate == null)
+                        )
+
+            val previewExpenseCount =
+                if (!hasDateError) {
+                    expenses.count { e -> inRange(e.timestamp.toLocalDate(), previewFromDate, previewToDate) }
+                } else 0
+
+            val previewMileageCount =
+                if (!hasDateError) {
+                    mileage.count { m -> inRange(m.date, previewFromDate, previewToDate) }
+                } else 0
+
+            if (hasDateError) {
+                Text(
+                    "Dates look invalid – use YYYY-MM-DD (for example 2025-01-31).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                Text(
+                    text = if (useDateRange) {
+                        "This range currently includes $previewExpenseCount expenses and $previewMileageCount mileage rows."
+                    } else {
+                        "You currently have ${expenses.size} expenses and ${mileage.size} mileage rows available to export."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
                 "What would you like to export?",
                 style = MaterialTheme.typography.titleMedium
@@ -324,16 +364,6 @@ fun ExportScreen(
                 Text("Export mileage")
             }
 
-            if (lastExportSummary != null) {
-                Text(
-                    lastExportSummary!!,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
             Text(
                 "Tip: leave date range off to export everything.",
                 style = MaterialTheme.typography.bodySmall,
@@ -346,6 +376,25 @@ fun ExportScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Last export summary (optional)
+            if (lastExportSummary != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Last export",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    text = lastExportSummary!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
