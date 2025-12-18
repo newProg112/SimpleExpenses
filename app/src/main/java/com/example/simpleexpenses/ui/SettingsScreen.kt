@@ -44,6 +44,7 @@ fun SettingsScreen(
     themeMode: AppThemeMode,
     onThemeChange: (AppThemeMode) -> Unit,
     onOpenAppInfo: () -> Unit,
+    onOpenCategoryManager: () -> Unit,
     onShowOnboarding: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -259,6 +260,10 @@ fun SettingsScreen(
 
             TextButton(onClick = onOpenAppInfo) {
                 Text("App info")
+            }
+
+            TextButton(onClick = onOpenCategoryManager) {
+                Text("Manage expense categories")
             }
 
             TextButton(onClick = onShowOnboarding) {

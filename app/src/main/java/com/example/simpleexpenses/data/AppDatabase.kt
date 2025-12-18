@@ -9,8 +9,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Expense::class, MileageEntry::class],
-    version = 3,
+    entities = [
+        Expense::class,
+        MileageEntry::class,
+        ExpenseCategory::class
+    ],
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -48,4 +52,6 @@ abstract class AppDatabase : RoomDatabase() {
                     .also { INSTANCE = it }
             }
     }
+
+    abstract fun expenseCategoryDao(): ExpenseCategoryDao
 }

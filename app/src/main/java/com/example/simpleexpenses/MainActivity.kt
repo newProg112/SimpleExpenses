@@ -221,9 +221,16 @@ class MainActivity : ComponentActivity() {
                                 themeMode = themeMode,
                                 onThemeChange = { newMode -> themeMode = newMode },
                                 onOpenAppInfo = { nav.navigate("app_info") },
+                                onOpenCategoryManager = { nav.navigate("categories") },
                                 onShowOnboarding = {
                                     nav.navigate("onboarding")
                                 },
+                                onBack = { nav.popBackStack() }
+                            )
+                        }
+
+                        composable("categories") {
+                            com.example.simpleexpenses.ui.CategoryManagerScreen(
                                 onBack = { nav.popBackStack() }
                             )
                         }

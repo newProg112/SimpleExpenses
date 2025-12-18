@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -339,7 +340,11 @@ fun ExpenseListScreen(
                 scrollBehavior = scrollBehavior
             )
         },
-        floatingActionButton = { FloatingActionButton(onClick = onAdd) { Text("+") } },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAdd) {
+                Icon(Icons.Filled.Add, contentDescription = "Add expense")
+            }
+        },
         bottomBar = {
             Surface(tonalElevation = 3.dp) {
                 Row(
@@ -770,8 +775,8 @@ fun ExpenseListScreen(
                                     },
                                     supportingContent = {
                                         Text(
-                                            text = "£${"%.2f".format(e.amount)}",
-                                            style = MaterialTheme.typography.bodyLarge
+                                            text = listOfNotNull(e.notes?.takeIf { it.isNotBlank() }).joinToString(),
+                                            maxLines = 1
                                         )
                                     },
                                     trailingContent = {
@@ -786,50 +791,71 @@ fun ExpenseListScreen(
                                             } ?: false
                                         }
 
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            if (!receiptUri.isNullOrBlank()) {
-                                                Icon(
-                                                    imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
-                                                    contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
-                                                    tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
+                                        val dateText = remember(e.timestamp) {
+                                            java.time.Instant.ofEpochMilli(e.timestamp)
+                                                .atZone(java.time.ZoneId.systemDefault())
+                                                .toLocalDate()
+                                                .format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
+                                        }
 
-                                            com.example.simpleexpenses.ui.components.StatusChip(e.status)
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "£${"%.2f".format(e.amount)}",
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
+                                            Text(
+                                                text = dateText,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
 
-                                            IconButton(onClick = { menuForId = e.id }) {
-                                                Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                                            }
+                                            Spacer(Modifier.height(6.dp))
 
-                                            DropdownMenu(
-                                                expanded = menuForId == e.id,
-                                                onDismissRequest = { menuForId = null }
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                fun choose(newStatus: ExpenseStatus, label: String) {
-                                                    scope.launch {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        viewModel.update(e.copy(status = newStatus))
-                                                        snackbarHostState.showSnackbar("Marked as $label")
-                                                    }
-                                                    menuForId = null
+                                                if (!receiptUri.isNullOrBlank()) {
+                                                    Icon(
+                                                        imageVector = if (isPdf) Icons.Filled.Description else Icons.Filled.Image,
+                                                        contentDescription = if (isPdf) "PDF receipt" else "Image receipt",
+                                                        tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
                                                 }
 
-                                                DropdownMenuItem(
-                                                    text = { Text("Mark as Submitted") },
-                                                    onClick = { choose(ExpenseStatus.Submitted, "Submitted") }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("Mark as Approved") },
-                                                    onClick = { choose(ExpenseStatus.Approved, "Approved") }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("Mark as Paid") },
-                                                    onClick = { choose(ExpenseStatus.Paid, "Paid") }
-                                                )
+                                                com.example.simpleexpenses.ui.components.StatusChip(e.status)
+
+                                                IconButton(onClick = { menuForId = e.id }) {
+                                                    Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = menuForId == e.id,
+                                                    onDismissRequest = { menuForId = null }
+                                                ) {
+                                                    fun choose(newStatus: ExpenseStatus, label: String) {
+                                                        scope.launch {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            viewModel.update(e.copy(status = newStatus))
+                                                            snackbarHostState.showSnackbar("Marked as $label")
+                                                        }
+                                                        menuForId = null
+                                                    }
+
+                                                    DropdownMenuItem(
+                                                        text = { Text("Mark as Submitted") },
+                                                        onClick = { choose(ExpenseStatus.Submitted, "Submitted") }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Mark as Approved") },
+                                                        onClick = { choose(ExpenseStatus.Approved, "Approved") }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Mark as Paid") },
+                                                        onClick = { choose(ExpenseStatus.Paid, "Paid") }
+                                                    )
+                                                }
                                             }
                                         }
                                     }

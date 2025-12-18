@@ -98,6 +98,8 @@ fun MileageEditScreen(
         }
     }
 
+    var passengersText by remember { mutableStateOf("") }
+
     // Local UI-only fields
     // Keep From/To for user context; we fold them into note on save.
     var from by remember { mutableStateOf("") }
@@ -150,6 +152,22 @@ fun MileageEditScreen(
 
     fun localDateToEpoch(ld: LocalDate): Long =
         ld.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    // --- UK strict date parsing: dd/MM/yyyy ---
+    val ukDateFormatter = remember {
+        java.time.format.DateTimeFormatter.ofPattern("dd/MM/uuuu")
+            .withResolverStyle(java.time.format.ResolverStyle.STRICT)
+    }
+
+    fun localDateToUkText(ld: LocalDate): String =
+        ld.format(ukDateFormatter)
+
+    fun parseUkDateOrNull(text: String): LocalDate? =
+        try {
+            LocalDate.parse(text.trim(), ukDateFormatter)
+        } catch (_: Exception) {
+            null
+        }
 
     // Derived display currency – use HMRC tiered logic if available
     val currency = remember { NumberFormat.getCurrencyInstance() }
@@ -313,11 +331,15 @@ fun MileageEditScreen(
         ) {
             // Date
             var dateText by remember(ui.dateEpochMillis) {
-                mutableStateOf(epochToLocalDate(ui.dateEpochMillis).toString())
+                mutableStateOf(localDateToUkText(epochToLocalDate(ui.dateEpochMillis)))
             }
 
             // Show error only after user has touched the field
             val dateError = dateTouched && !dateIsValid
+
+            LaunchedEffect(ui.passengers) {
+                passengersText = if (ui.passengers <= 0) "" else ui.passengers.toString()
+            }
 
             OutlinedTextField(
                 value = dateText,
@@ -325,20 +347,19 @@ fun MileageEditScreen(
                     dateText = text
                     dateTouched = true
 
-                    runCatching { LocalDate.parse(text) }
-                        .onSuccess { parsed ->
-                            dateIsValid = true
-                            vm.onDateChanged(localDateToEpoch(parsed))
-                        }
-                        .onFailure {
-                            dateIsValid = false
-                        }
+                    val parsed = parseUkDateOrNull(text)
+                    if (parsed != null) {
+                        dateIsValid = true
+                        vm.onDateChanged(localDateToEpoch(parsed))
+                    } else {
+                        dateIsValid = false
+                    }
                 },
-                label = { Text("Date (YYYY-MM-DD)") },
+                label = { Text("Date (dd/MM/yyyy)") },
                 isError = dateError,
                 supportingText = {
                     if (dateError) {
-                        Text("Please use date format YYYY-MM-DD, e.g. 2025-11-30")
+                        Text("Use dd/MM/yyyy, e.g. 17/12/2025")
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -365,8 +386,11 @@ fun MileageEditScreen(
                 value = if (ui.miles == 0.0) "" else String.format("%.1f", ui.miles),
                 onValueChange = { text ->
                     milesTouched = true
-                    val miles = text.toDoubleOrNull() ?: 0.0
-                    vm.onMilesChanged(miles)
+
+                    val miles = text.trim().replace(",", ".").toDoubleOrNull() ?: 0.0
+                    val capped = miles.coerceIn(0.0, 500.0)
+
+                    vm.onMilesChanged(capped)
                 },
                 label = { Text("Distance (miles)") },
                 modifier = Modifier.fillMaxWidth(),
@@ -381,23 +405,27 @@ fun MileageEditScreen(
             )
 
             // Passengers
-            val passengersError = passengersTouched && ui.passengers < 0
+            val passengersParsed = passengersText.toIntOrNull()
+            val passengersError = passengersTouched && passengersText.isNotBlank() && passengersParsed == null
 
             OutlinedTextField(
-                value = if (ui.passengers == 0) "" else ui.passengers.toString(),
+                value = passengersText,
                 onValueChange = { t ->
                     passengersTouched = true
-                    val parsed = t.toIntOrNull() ?: 0
-                    vm.onPassengersChanged(parsed.coerceAtLeast(0))
+                    passengersText = t
+
+                    val parsed = t.toIntOrNull()
+
+                    // Only update VM when parse is valid or blank
+                    if (t.isBlank()) vm.onPassengersChanged(0)
+                    else parsed?.let { vm.onPassengersChanged(it.coerceAtLeast(0)) }
                 },
                 label = { Text("Passengers") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = passengersError,
                 supportingText = {
-                    if (passengersError) {
-                        Text("Passengers cannot be negative")
-                    }
+                    if (passengersError) Text("Enter a whole number (or leave blank)")
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )

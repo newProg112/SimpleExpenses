@@ -43,8 +43,11 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -145,6 +148,9 @@ fun CombinedActivityScreen(
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
     var showAddDialog by remember { mutableStateOf(false) }
+
+    var pendingDeleteExpense by remember { mutableStateOf<Expense?>(null) }
+    var pendingDeleteMileage by remember { mutableStateOf<MileageEntry?>(null) }
 
     val cameraLauncherForDraft = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -535,120 +541,223 @@ fun CombinedActivityScreen(
                             }
                         ) { dayItem ->
                             when (dayItem) {
-                                is CombinedItem.ExpenseItem ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 4.dp, bottom = 4.dp)
-                                        ) {
-                                            // Chip row (top-right)
+                                is CombinedItem.ExpenseItem -> {
+                                    val e = dayItem.e
+
+                                    val dismissState = rememberSwipeToDismissBoxState(
+                                        confirmValueChange = { value ->
+                                            when (value) {
+                                                SwipeToDismissBoxValue.StartToEnd -> {
+                                                    // Swipe right -> edit
+                                                    onExpenseClick(e.id)
+                                                    false
+                                                }
+                                                SwipeToDismissBoxValue.EndToStart -> {
+                                                    // Swipe left -> delete confirm
+                                                    pendingDeleteExpense = e
+                                                    false
+                                                }
+                                                SwipeToDismissBoxValue.Settled -> false
+                                            }
+                                        }
+                                    )
+
+                                    SwipeToDismissBox(
+                                        state = dismissState,
+                                        enableDismissFromEndToStart = true,
+                                        enableDismissFromStartToEnd = true,
+                                        backgroundContent = {
+                                            val dir = dismissState.dismissDirection
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                                    .padding(horizontal = 18.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = when (dir) {
+                                                    SwipeToDismissBoxValue.StartToEnd -> Arrangement.Start
+                                                    SwipeToDismissBoxValue.EndToStart -> Arrangement.End
+                                                    else -> Arrangement.SpaceBetween
+                                                }
                                             ) {
-                                                Spacer(modifier = Modifier.weight(1f))
-
-                                                // 🔴 Missing receipt chip
-                                                if (!dayItem.e.hasReceipt) {
-                                                    AssistChip(
-                                                        onClick = { /* no-op */ },
-                                                        label = { Text("Missing receipt") },
-                                                        colors = AssistChipDefaults.assistChipColors(
-                                                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                                                            labelColor = MaterialTheme.colorScheme.onErrorContainer
-                                                        )
-                                                    )
-
-                                                    Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                                                }
-
-                                                // Attachment count badge
-                                                val attachmentsCount =
-                                                    dayItem.e.attachmentUris.size.takeIf { it > 0 }
-                                                        ?: if (dayItem.e.hasReceipt && dayItem.e.receiptUri != null) 1 else 0
-
-                                                if (attachmentsCount > 0) {
-                                                    AssistChip(
-                                                        onClick = { /* no-op for now */ },
-                                                        label = {
-                                                            Text("📎 $attachmentsCount")
-                                                        },
-                                                        colors = AssistChipDefaults.assistChipColors(
-                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    )
-
-                                                    Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                                                }
-
-                                                // "Expense" chip
-                                                AssistChip(
-                                                    onClick = { /* no-op */ },
-                                                    label = { Text("Expense") },
-                                                    colors = AssistChipDefaults.assistChipColors(
-                                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                                    )
+                                                Text(
+                                                    text = when (dir) {
+                                                        SwipeToDismissBoxValue.StartToEnd -> "Edit"
+                                                        SwipeToDismissBoxValue.EndToStart -> "Delete"
+                                                        else -> ""
+                                                    },
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
-
-                                            // Existing row content
-                                            ExpenseRow(
-                                                item = dayItem.e,
-                                                onClick = { onExpenseClick(dayItem.e.id) }
-                                            )
                                         }
-                                    }
-
-                                is CombinedItem.MileageItem ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                                     ) {
-                                        Column(
+                                        // ---- Expense card UI ----
+                                        val attachmentsCount =
+                                            e.attachmentUris.size.takeIf { it > 0 }
+                                                ?: if (e.hasReceipt && e.receiptUri != null) 1 else 0
+
+                                        Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(top = 4.dp, bottom = 4.dp)
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                                         ) {
-                                            // Chip row (top-right)
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Expense",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                                    )
+
+                                                    Spacer(Modifier.weight(1f))
+
+                                                    if (!e.hasReceipt) {
+                                                        AssistChip(
+                                                            onClick = { /* no-op */ },
+                                                            label = { Text("Missing receipt") },
+                                                            colors = AssistChipDefaults.assistChipColors(
+                                                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                                                labelColor = MaterialTheme.colorScheme.onErrorContainer
+                                                            )
+                                                        )
+                                                    }
+
+                                                    if (attachmentsCount > 0) {
+                                                        AssistChip(
+                                                            onClick = { /* no-op */ },
+                                                            label = { Text("📎 $attachmentsCount") },
+                                                            colors = AssistChipDefaults.assistChipColors(
+                                                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        )
+                                                    }
+                                                }
+
+                                                Divider()
+
+                                                ExpenseRow(
+                                                    item = e,
+                                                    onClick = { onExpenseClick(e.id) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                is CombinedItem.MileageItem -> {
+                                    val m = dayItem.m
+
+                                    val dismissState = rememberSwipeToDismissBoxState(
+                                        confirmValueChange = { value ->
+                                            when (value) {
+                                                SwipeToDismissBoxValue.StartToEnd -> {
+                                                    onMileageClick(m.id)
+                                                    false
+                                                }
+                                                SwipeToDismissBoxValue.EndToStart -> {
+                                                    pendingDeleteMileage = m
+                                                    false
+                                                }
+                                                SwipeToDismissBoxValue.Settled -> false
+                                            }
+                                        }
+                                    )
+
+                                    SwipeToDismissBox(
+                                        state = dismissState,
+                                        enableDismissFromEndToStart = true,
+                                        enableDismissFromStartToEnd = true,
+                                        backgroundContent = {
+                                            val dir = dismissState.dismissDirection
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                                    .padding(horizontal = 18.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = when (dir) {
+                                                    SwipeToDismissBoxValue.StartToEnd -> Arrangement.Start
+                                                    SwipeToDismissBoxValue.EndToStart -> Arrangement.End
+                                                    else -> Arrangement.SpaceBetween
+                                                }
                                             ) {
-                                                Spacer(modifier = Modifier.weight(1f))
-
-                                                AssistChip(
-                                                    onClick = { /* no-op */ },
-                                                    label = { Text("Mileage") },
-                                                    colors = AssistChipDefaults.assistChipColors(
-                                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    )
+                                                Text(
+                                                    text = when (dir) {
+                                                        SwipeToDismissBoxValue.StartToEnd -> "Edit"
+                                                        SwipeToDismissBoxValue.EndToStart -> "Delete"
+                                                        else -> ""
+                                                    },
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
+                                        }
+                                    ) {
+                                        val hasAttachments = m.hasReceipt || !m.receiptUri.isNullOrBlank()
 
-                                            // Existing row content
-                                            MileageRow(
-                                                item = dayItem.m,
-                                                onClick = { onMileageClick(dayItem.m.id) }
-                                            )
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Mileage",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                                    )
+
+                                                    Spacer(Modifier.weight(1f))
+
+                                                    if (hasAttachments) {
+                                                        AssistChip(
+                                                            onClick = { /* no-op */ },
+                                                            label = { Text("📎") },
+                                                            colors = AssistChipDefaults.assistChipColors(
+                                                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        )
+                                                    }
+                                                }
+
+                                                Divider()
+
+                                                MileageRow(
+                                                    item = m,
+                                                    onClick = { onMileageClick(m.id) }
+                                                )
+                                            }
                                         }
                                     }
+                                }
                             }
                         }
                     }
@@ -692,6 +801,44 @@ fun CombinedActivityScreen(
                 TextButton(onClick = { showAddDialog = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // Delete confirm: Expense
+    if (pendingDeleteExpense != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteExpense = null },
+            title = { Text("Delete expense") },
+            text = { Text("Are you sure? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val toDelete = pendingDeleteExpense!!
+                    pendingDeleteExpense = null
+                    expenseVM.delete(toDelete)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteExpense = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Delete confirm: Mileage
+    if (pendingDeleteMileage != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteMileage = null },
+            title = { Text("Delete mileage") },
+            text = { Text("Are you sure? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val toDelete = pendingDeleteMileage!!
+                    pendingDeleteMileage = null
+                    mileageVM.delete(toDelete.id)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteMileage = null }) { Text("Cancel") }
             }
         )
     }

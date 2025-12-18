@@ -26,4 +26,6 @@ data class Expense(
     val vatAdjustmentPence: Int = 0,
 
     val vatRatePercent: Int = 20, // default to 20% for existing rows
+
+    val vatManualPence: Int? = null
 )

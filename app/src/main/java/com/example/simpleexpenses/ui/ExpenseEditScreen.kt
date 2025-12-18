@@ -8,6 +8,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -39,16 +40,22 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +70,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,7 +87,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
+import com.example.simpleexpenses.data.AppDatabase
 import com.example.simpleexpenses.data.Expense
 import com.example.simpleexpenses.data.ExpenseStatus
 import com.example.simpleexpenses.ocr.ReceiptOcrHelper
@@ -90,6 +100,7 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -101,9 +112,22 @@ fun ExpenseEditScreen(
     startWithCamera: Boolean = false,
     onDone: () -> Unit
 ) {
-    // Preset options
-    val categories = listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
+    // Payment methods stay static for now
     val paymentMethods = listOf("Personal", "CompanyCard")
+
+    // Category manager – pull from DB
+    val context = LocalContext.current
+    val db = remember { AppDatabase.get(context.applicationContext) }
+    val categoryVm: CategoryViewModel = viewModel(
+        factory = CategoryVMFactory(db.expenseCategoryDao())
+    )
+    val categoriesFromDb by categoryVm.categories.collectAsState()
+
+    // Fallback if DB empty (e.g. before seeding)
+    val categories: List<String> =
+        if (categoriesFromDb.isNotEmpty()) categoriesFromDb.map { it.name }
+        else listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
+
 
     // Local state (saveable across rotation)
     var amountText by rememberSaveable { mutableStateOf("") }
@@ -125,6 +149,9 @@ fun ExpenseEditScreen(
     var vatRatePercent by rememberSaveable { mutableStateOf(ExpenseDefaults.vatRatePercent) }
     var vatAdjustmentPence by rememberSaveable { mutableStateOf(0) }
 
+    var manualVatEnabled by rememberSaveable { mutableStateOf(false) }
+    var manualVatText by rememberSaveable { mutableStateOf("") } // VAT amount in £
+
     var existing by remember { mutableStateOf<Expense?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -141,9 +168,35 @@ fun ExpenseEditScreen(
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
+    var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    var manualVatTouched by rememberSaveable { mutableStateOf(false) }
+
+    fun parseAmountOrNull(text: String): Double? =
+        text.trim().replace(",", ".").toDoubleOrNull()
+
     // Validation
-    val amountError = amountText.toDoubleOrNull()?.let { it <= 0.0 } ?: true
-    val canSave = !amountError
+    val amountValue = parseAmountOrNull(amountText)
+
+    val amountError = attemptedSave && (amountValue == null || amountValue <= 0.0)
+
+    val categoryError = attemptedSave && category.isBlank()
+
+    // Manual VAT validation
+    val grossForManual = amountValue
+    val manualVatParsed = manualVatText.replace(",", ".").toDoubleOrNull()
+
+    val manualVatError =
+        manualVatEnabled && (attemptedSave || manualVatTouched) && (
+                manualVatText.isBlank() ||
+                        manualVatParsed == null ||
+                        manualVatParsed < 0.0 ||
+                        (grossForManual != null && manualVatParsed > grossForManual)
+                )
+
+    val canSave =
+        (amountValue != null && amountValue > 0.0) &&
+                !categoryError &&
+                (!manualVatEnabled || !manualVatError)
 
     // Date handling
     val dateFormatter = remember {
@@ -162,8 +215,15 @@ fun ExpenseEditScreen(
     var showDatePicker by remember { mutableStateOf(false) }
 
     val doSave: () -> Unit = doSave@{
+        attemptedSave = true
+
+        if (category.isBlank()) return@doSave
+
+        if (amountValue == null || amountValue <= 0.0) return@doSave
+        if (manualVatEnabled && manualVatError) return@doSave
+
         // Recalculate validation based on *current* text
-        val currentAmount = amountText.toDoubleOrNull()
+        val currentAmount = parseAmountOrNull(amountText)
         val currentAmountError = currentAmount == null || currentAmount <= 0.0
 
         if (currentAmountError) {
@@ -184,6 +244,20 @@ fun ExpenseEditScreen(
                 else -> "Expense"
             }
 
+            val grossPence = (amt * 100.0).roundToInt()
+
+            val manualVatPence: Int? =
+                if (manualVatEnabled) {
+                    val parsed = manualVatText.replace(",", ".").toDoubleOrNull()
+                        ?: run {
+                            Toast.makeText(context, "Enter VAT like 3.33", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+
+                    val pence = (parsed * 100.0).roundToInt()
+                    pence.coerceIn(0, grossPence)
+                } else null
+
             val updated = (existing ?: Expense(
                 title = autoTitle,
                 amount = amt,
@@ -191,6 +265,7 @@ fun ExpenseEditScreen(
             )).copy(
                 title = autoTitle,
                 amount = amt,
+                timestamp = dateMillis, // ✅ use picked date
                 status = status,
                 category = category,
                 merchant = merchant.ifBlank { null },
@@ -202,8 +277,9 @@ fun ExpenseEditScreen(
                 hasReceipt = attachmentUris.isNotEmpty(),
                 receiptUri = attachmentUris.firstOrNull(),
 
-                vatAdjustmentPence = vatAdjustmentPence,
-                vatRatePercent = vatRatePercent
+                vatRatePercent = vatRatePercent,
+                vatAdjustmentPence = if (manualVatPence != null) 0 else vatAdjustmentPence,
+                vatManualPence = manualVatPence
             )
 
             if (existing == null) {
@@ -225,7 +301,25 @@ fun ExpenseEditScreen(
         }
     }
 
-    val context = LocalContext.current
+    // Duplicate the current expense as a new row
+    val doCopy: () -> Unit = fun() {
+        val original = existing ?: return  // now this is allowed
+
+        scope.launch {
+            val copy = original.copy(
+                id = 0, // let Room assign a new ID
+                timestamp = System.currentTimeMillis()
+            )
+
+            viewModel.add(copy)
+
+            Toast
+                .makeText(context, "Copied as new expense", Toast.LENGTH_SHORT)
+                .show()
+
+            onDone()
+        }
+    }
 
     // Try OCR once when we first get a receipt image and amount is still blank
     LaunchedEffect(receiptLocalUri) {
@@ -276,6 +370,9 @@ fun ExpenseEditScreen(
                 vatRatePercent = e.vatRatePercent
                 vatAdjustmentPence = e.vatAdjustmentPence
                 dateMillis = e.timestamp
+
+                manualVatEnabled = e.vatManualPence != null
+                manualVatText = e.vatManualPence?.let { String.format("%.2f", it / 100.0) }.orEmpty()
             }
         } else if (!initialReceiptUri.isNullOrBlank()) {
             // New expense launched with a receipt (quick add)
@@ -293,7 +390,35 @@ fun ExpenseEditScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(if (expenseId != null) "Edit Expense" else "New Expense") })
+            // Overflow menu for actions like "Copy expense"
+            var showMenu by remember { mutableStateOf(false) }
+
+            TopAppBar(
+                title = { Text(if (expenseId != null) "Edit Expense" else "New Expense") },
+                actions = {
+                    if (expenseId != null) {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "More actions"
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Copy to new") },
+                                onClick = {
+                                    showMenu = false
+                                    doCopy()
+                                }
+                            )
+                        }
+                    }
+                }
+            )
         },
         // Fixed bottom action bar (stays above keyboard)
         bottomBar = {
@@ -307,15 +432,27 @@ fun ExpenseEditScreen(
                 ) {
                     if (expenseId != null) {
                         OutlinedButton(
-                            onClick = { showDeleteConfirm = true }
-                        ) { Text("Delete") }
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Delete")
+                        }
+
+                        OutlinedButton(
+                            onClick = { doCopy() },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Copy")
+                        }
                     }
 
                     Button(
                         onClick = { doSave() },
                         enabled = canSave,
                         modifier = Modifier.weight(1f)
-                    ) { Text("Save") }
+                    ) {
+                        Text("Save")
+                    }
                 }
             }
         }
@@ -386,7 +523,7 @@ fun ExpenseEditScreen(
             // Amount
             OutlinedTextField(
                 value = amountText,
-                onValueChange = { amountText = it.replace(',', '.') },
+                onValueChange = { amountText = it },
                 label = { Text("Amount") },
                 isError = amountError,
                 supportingText = {
@@ -432,13 +569,20 @@ fun ExpenseEditScreen(
 
             ExposedDropdownMenuBox(
                 expanded = rateExpanded,
-                onExpandedChange = { rateExpanded = it }
+                onExpandedChange = { shouldExpand ->
+                    if (!manualVatEnabled) {
+                        rateExpanded = shouldExpand
+                    } else {
+                        rateExpanded = false
+                    }
+                }
             ) {
-                OutlinedTextField(
+            OutlinedTextField(
                     value = "$vatRatePercent%",
                     onValueChange = {},
                     label = { Text("VAT rate") },
                     readOnly = true,
+                    enabled = !manualVatEnabled,
                     modifier = Modifier
                         .menuAnchor()
                         .fillMaxWidth()
@@ -459,29 +603,100 @@ fun ExpenseEditScreen(
                 }
             }
 
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Manual VAT amount", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        if (manualVatEnabled) "Overrides VAT rate + adjustment."
+                        else "Off = VAT uses the rate above (and you can use ±1p).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = manualVatEnabled,
+                    onCheckedChange = { enabled ->
+                        manualVatEnabled = enabled
+                        if (enabled) {
+                            vatAdjustmentPence = 0
+                        } else {
+                            manualVatText = ""
+                        }
+                    }
+                )
+            }
+
+            OutlinedTextField(
+                value = manualVatText,
+                onValueChange = {
+                    manualVatTouched = true
+                    manualVatText = it.replace(",", ".")
+                },
+                label = { Text("VAT amount (£)") },
+                enabled = manualVatEnabled,
+                isError = manualVatError,
+                supportingText = {
+                    if (manualVatEnabled) {
+                        Text(
+                            when {
+                                manualVatText.isBlank() -> "Enter VAT from receipt (e.g. 1.23)"
+                                manualVatParsed == null -> "Enter a valid number (e.g. 1.23)"
+                                manualVatParsed < 0.0 -> "VAT can’t be negative"
+                                grossForManual != null && manualVatParsed > grossForManual -> "VAT can’t be more than gross"
+                                else -> "Net will be calculated as Gross − VAT"
+                            }
+                        )
+                    } else {
+                        Text("Optional – useful for mixed VAT receipts.")
+                    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction = ImeAction.Next
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
             Spacer(Modifier.height(12.dp))
 
-            val vatRate = vatRatePercent / 100.0
-            val grossAmount = amountText.replace(",", "").toDoubleOrNull()
-            val baseNet = grossAmount?.let { it / (1.0 + vatRate) }
-            val baseVat = if (grossAmount != null && baseNet != null) {
-                grossAmount - baseNet
-            } else null
+            Spacer(Modifier.height(12.dp))
 
-            // Apply adjustment (in pence) to VAT, and back-calc NET = GROSS - VAT
-            val adjustedVat = baseVat?.let { it + vatAdjustmentPence / 100.0 }
-            val adjustedNet = if (grossAmount != null && adjustedVat != null) {
-                grossAmount - adjustedVat
-            } else null
-
-            val netToShow = adjustedNet ?: baseNet
-            val vatToShow = adjustedVat ?: baseVat
-
+// --- Breakdown calculation ---
             val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
 
-            if (grossAmount != null && netToShow != null && vatToShow != null) {
-                Spacer(Modifier.height(8.dp))
+            val grossAmount = amountText.replace(",", ".").toDoubleOrNull()
+            val grossPenceUi = grossAmount?.let { (it * 100.0).roundToInt() }
 
+            val manualVatPenceUi =
+                if (manualVatEnabled) manualVatText.replace(",", ".").toDoubleOrNull()?.let { (it * 100.0).roundToInt() }
+                else null
+
+            val safeManualVatPenceUi =
+                if (grossPenceUi != null && manualVatPenceUi != null) manualVatPenceUi.coerceIn(0, grossPenceUi)
+                else null
+
+            val vatRate = vatRatePercent / 100.0
+            val baseNet = grossAmount?.let { it / (1.0 + vatRate) }
+            val baseVat = if (grossAmount != null && baseNet != null) grossAmount - baseNet else null
+
+            val adjustedVat = baseVat?.let { it + vatAdjustmentPence / 100.0 }
+
+            val vatToShow =
+                if (safeManualVatPenceUi != null) safeManualVatPenceUi / 100.0
+                else adjustedVat
+
+            val netToShow =
+                if (grossAmount != null && vatToShow != null) grossAmount - vatToShow
+                else baseNet
+
+            if (grossAmount != null && netToShow != null && vatToShow != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -504,41 +719,22 @@ fun ExpenseEditScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // Net
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = "Net (${vatRatePercent}% VAT)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = currency.format(netToShow),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Net", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(currency.format(netToShow), style = MaterialTheme.typography.titleMedium)
                             }
 
-                            // VAT
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "VAT (${vatRatePercent}%)",
+                                    text = if (manualVatEnabled) "VAT (manual)" else "VAT (${vatRatePercent}%)",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Text(currency.format(vatToShow), style = MaterialTheme.typography.titleMedium)
 
-                                Text(
-                                    text = currency.format(vatToShow),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                                if (!manualVatEnabled) {
+                                    Spacer(Modifier.height(6.dp))
 
-                                Spacer(Modifier.height(6.dp))
-
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
@@ -566,19 +762,9 @@ fun ExpenseEditScreen(
                                 }
                             }
 
-                            // Gross
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = "Gross",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = currency.format(grossAmount),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Gross", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(currency.format(grossAmount), style = MaterialTheme.typography.titleMedium)
                             }
                         }
                     }
@@ -647,6 +833,16 @@ fun ExpenseEditScreen(
                     )
                 }
             }
+
+            if (categoryError) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Please pick a category",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
 
             Card(
@@ -868,8 +1064,41 @@ fun MultiAttachmentSection(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        Text("Attachments", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Attachments", style = MaterialTheme.typography.titleMedium)
+
+            Spacer(Modifier.weight(1f))
+
+            // simple count “pill”
+            if (attachments.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    tonalElevation = 1.dp
+                ) {
+                    Text(
+                        text = "${attachments.size}",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
+            text = "Add photos or PDFs. Tap a tile to preview.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(12.dp))
 
         // ---- PREVIEW AREA ----
         if (attachments.isNotEmpty()) {
@@ -878,8 +1107,7 @@ fun MultiAttachmentSection(
                 val uriString = attachments.first()
                 val uri = Uri.parse(uriString)
                 val mime = context.contentResolver.getType(uri)
-                val isPdf = mime == "application/pdf" ||
-                        uriString.lowercase().endsWith(".pdf")
+                val isPdf = mime == "application/pdf" || uriString.lowercase().endsWith(".pdf")
 
                 Card(
                     modifier = Modifier
@@ -913,9 +1141,7 @@ fun MultiAttachmentSection(
                         TextButton(
                             onClick = { onRemove(uriString) },
                             modifier = Modifier.align(Alignment.TopEnd)
-                        ) {
-                            Text("Remove")
-                        }
+                        ) { Text("Remove") }
                     }
                 }
             } else {
@@ -927,8 +1153,7 @@ fun MultiAttachmentSection(
                     itemsIndexed(attachments) { index, uriString ->
                         val uri = Uri.parse(uriString)
                         val mime = context.contentResolver.getType(uri)
-                        val isPdf = mime == "application/pdf" ||
-                                uriString.lowercase().endsWith(".pdf")
+                        val isPdf = mime == "application/pdf" || uriString.lowercase().endsWith(".pdf")
 
                         Card(
                             modifier = Modifier
@@ -963,9 +1188,7 @@ fun MultiAttachmentSection(
                                 TextButton(
                                     onClick = { onRemove(uriString) },
                                     modifier = Modifier.align(Alignment.TopEnd)
-                                ) {
-                                    Text("Remove")
-                                }
+                                ) { Text("Remove") }
 
                                 // Reorder arrows (bottom center)
                                 Row(
@@ -976,11 +1199,7 @@ fun MultiAttachmentSection(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     IconButton(
-                                        onClick = {
-                                            if (index > 0) {
-                                                onMove(index, index - 1)
-                                            }
-                                        },
+                                        onClick = { if (index > 0) onMove(index, index - 1) },
                                         enabled = index > 0
                                     ) {
                                         Icon(
@@ -990,11 +1209,7 @@ fun MultiAttachmentSection(
                                     }
 
                                     IconButton(
-                                        onClick = {
-                                            if (index < attachments.size - 1) {
-                                                onMove(index, index + 1)
-                                            }
-                                        },
+                                        onClick = { if (index < attachments.size - 1) onMove(index, index + 1) },
                                         enabled = index < attachments.size - 1
                                     ) {
                                         Icon(
@@ -1017,17 +1232,25 @@ fun MultiAttachmentSection(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = {
-                val uri = createImageUri(context)
-                pendingUri = uri
-                if (uri != null) camera.launch(uri)
-            }) {
+            FilledTonalButton(
+                onClick = {
+                    val uri = createImageUri(context)
+                    pendingUri = uri
+                    if (uri != null) camera.launch(uri)
+                },
+                modifier = Modifier.weight(1.2f)
+            ) {
+                Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
                 Text("Take photo")
             }
 
-            Button(onClick = {
-                picker.launch(arrayOf("image/*", "application/pdf"))
-            }) {
+            OutlinedButton(
+                onClick = { picker.launch(arrayOf("image/*", "application/pdf")) },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.AttachFile, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
                 Text("Add file")
             }
         }
