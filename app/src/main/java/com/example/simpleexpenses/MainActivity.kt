@@ -40,8 +40,22 @@ class MainActivity : ComponentActivity() {
         val app = application as LocalApp
 
         setContent {
-            // App-wide theme mode (for now, in-memory only)
-            var themeMode by remember { mutableStateOf(AppThemeMode.SYSTEM) }
+            val context = LocalContext.current
+            val prefs = remember {
+                context.getSharedPreferences("simple_expenses_prefs", Context.MODE_PRIVATE)
+            }
+
+            // App-wide theme mode (persisted)
+            var themeMode by remember {
+                mutableStateOf(
+                    runCatching {
+                        AppThemeMode.valueOf(
+                            prefs.getString("theme_mode", AppThemeMode.SYSTEM.name)
+                                ?: AppThemeMode.SYSTEM.name
+                        )
+                    }.getOrElse { AppThemeMode.SYSTEM }
+                )
+            }
 
             val openAddExpenseCamera = remember {
                 intent?.getBooleanExtra("open_add_expense_camera", false) == true
@@ -51,11 +65,6 @@ class MainActivity : ComponentActivity() {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     val nav = rememberNavController()
                     val vm: ExpenseViewModel = viewModel(factory = ExpenseVMFactory(app))
-
-                    val context = LocalContext.current
-                    val prefs = remember {
-                        context.getSharedPreferences("simple_expenses_prefs", Context.MODE_PRIVATE)
-                    }
 
                     // onboarding flag
                     var hasSeenOnboarding by remember {
@@ -219,7 +228,10 @@ class MainActivity : ComponentActivity() {
                             com.example.simpleexpenses.ui.SettingsScreen(
                                 mileageVM = mvm,
                                 themeMode = themeMode,
-                                onThemeChange = { newMode -> themeMode = newMode },
+                                onThemeChange = { newMode ->
+                                    themeMode = newMode
+                                    prefs.edit().putString("theme_mode", newMode.name).apply()
+                                },
                                 onOpenAppInfo = { nav.navigate("app_info") },
                                 onOpenCategoryManager = { nav.navigate("categories") },
                                 onShowOnboarding = {
@@ -230,7 +242,18 @@ class MainActivity : ComponentActivity() {
                         }
 
                         composable("categories") {
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+
+                            val categoryVM = viewModel<com.example.simpleexpenses.ui.CategoryViewModel>(
+                                factory = com.example.simpleexpenses.ui.CategoryVMFactory(
+                                    db.expenseCategoryDao(),
+                                    db.expenseDao()
+                                )
+                            )
+
                             com.example.simpleexpenses.ui.CategoryManagerScreen(
+                                viewModel = categoryVM,
                                 onBack = { nav.popBackStack() }
                             )
                         }

@@ -4,14 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.simpleexpenses.data.ExpenseCategory
 import com.example.simpleexpenses.data.ExpenseCategoryDao
+import com.example.simpleexpenses.data.ExpenseDao
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class CategoryViewModel(
-    private val dao: ExpenseCategoryDao
+    private val dao: ExpenseCategoryDao,
+    private val expenseDao: ExpenseDao
 ) : ViewModel() {
+
+    // (optional but useful) a message you can show in the UI
+    private val _uiMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val uiMessage: kotlinx.coroutines.flow.StateFlow<String?> = _uiMessage
 
     val categories: StateFlow<List<ExpenseCategory>> =
         dao.observeActive()
@@ -39,6 +45,10 @@ class CategoryViewModel(
                 dao.insertAll(defaults)
             }
         }
+    }
+
+    fun clearMessage() {
+        _uiMessage.value = null
     }
 
     fun addCategory(name: String) {
@@ -75,7 +85,42 @@ class CategoryViewModel(
 
     fun delete(category: ExpenseCategory) {
         viewModelScope.launch {
+            val usedCount = expenseDao.countByCategory(category.name)
+            if (usedCount > 0) {
+                _uiMessage.value = "Can't delete “${category.name}” — it's used by $usedCount expense(s)."
+                return@launch
+            }
             dao.delete(category)
+        }
+    }
+
+    fun moveUp(category: ExpenseCategory) {
+        viewModelScope.launch {
+            val list = dao.getActiveOrderedOnce()
+            val idx = list.indexOfFirst { it.id == category.id }
+            if (idx <= 0) return@launch
+
+            val above = list[idx - 1]
+            val current = list[idx]
+
+            // swap sortOrder
+            dao.update(above.copy(sortOrder = current.sortOrder))
+            dao.update(current.copy(sortOrder = above.sortOrder))
+        }
+    }
+
+    fun moveDown(category: ExpenseCategory) {
+        viewModelScope.launch {
+            val list = dao.getActiveOrderedOnce()
+            val idx = list.indexOfFirst { it.id == category.id }
+            if (idx == -1 || idx >= list.lastIndex) return@launch
+
+            val below = list[idx + 1]
+            val current = list[idx]
+
+            // swap sortOrder
+            dao.update(below.copy(sortOrder = current.sortOrder))
+            dao.update(current.copy(sortOrder = below.sortOrder))
         }
     }
 }

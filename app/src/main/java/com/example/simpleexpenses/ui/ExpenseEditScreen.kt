@@ -119,15 +119,22 @@ fun ExpenseEditScreen(
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context.applicationContext) }
     val categoryVm: CategoryViewModel = viewModel(
-        factory = CategoryVMFactory(db.expenseCategoryDao())
+        factory = CategoryVMFactory(
+            db.expenseCategoryDao(),
+            db.expenseDao() // or whatever your DB method is called
+        )
     )
     val categoriesFromDb by categoryVm.categories.collectAsState()
 
     // Fallback if DB empty (e.g. before seeding)
     val categories: List<String> =
-        if (categoriesFromDb.isNotEmpty()) categoriesFromDb.map { it.name }
-        else listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
-
+        if (categoriesFromDb.isNotEmpty()) {
+            categoriesFromDb
+                .sortedBy { it.sortOrder }
+                .map { it.name }
+        } else {
+            listOf("General", "Travel", "Meals", "Supplies", "Software", "Training", "Other")
+        }
 
     // Local state (saveable across rotation)
     var amountText by rememberSaveable { mutableStateOf("") }
@@ -139,6 +146,17 @@ fun ExpenseEditScreen(
     var status by rememberSaveable { mutableStateOf(ExpenseStatus.Submitted) }
 
     var category by rememberSaveable { mutableStateOf(ExpenseDefaults.category) }
+
+    LaunchedEffect(categoriesFromDb) {
+        if (category.isBlank() && categories.isNotEmpty()) {
+            category = categories.first()
+        }
+    }
+
+    val chipCategories =
+        if (category.isNotBlank() && !categories.contains(category)) listOf(category) + categories
+        else categories
+
     var merchant by rememberSaveable { mutableStateOf("") }
     var merchantExpanded by remember { mutableStateOf(false) }
     var merchantSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -825,7 +843,7 @@ fun ExpenseEditScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                categories.forEach { c ->
+                chipCategories.forEach { c ->
                     FilterChip(
                         selected = category == c,
                         onClick = { category = c },
