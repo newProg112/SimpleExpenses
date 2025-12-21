@@ -496,11 +496,11 @@ fun CombinedActivityScreen(
                             CombinedFilter.MISSING_RECEIPTS ->
                                 "Attach receipts from the editor screen to clear this."
                             CombinedFilter.EXPENSES ->
-                                "Tap £ to add your first expense."
+                                "Tap + then Expense to add your first expense."
                             CombinedFilter.MILEAGE ->
-                                "Tap mi to add your first mileage trip."
+                                "Tap + then Mileage to add your first trip."
                             CombinedFilter.ALL ->
-                                "Use £ or mi below to start logging."
+                                "Tap + to start logging."
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

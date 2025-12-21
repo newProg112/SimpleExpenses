@@ -26,8 +26,8 @@ object ExportCsv {
     @RequiresApi(Build.VERSION_CODES.O)
     fun buildMileageOnly(mileage: List<MileageEntry>): String {
         val sb = StringBuilder()
-        sb.appendLine("# Mileage")
-        sb.appendLine("date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes")
+        sb.appendLine("# Exported from Simple Expenses on ${LocalDate.now()}")
+        sb.appendLine("date,from,to,miles,rate_pence_per_mile,net_gbp (£),vat_gbp (£),gross_gbp (£),net_pence,vat_pence,gross_pence,notes")
 
         mileage.forEach { m ->
             val miles = ((m.distanceMeters / 1609.344) * 10.0).roundToInt() / 10.0
@@ -75,9 +75,9 @@ object ExportCsv {
         val sb = StringBuilder()
 
         // --- Expenses section ---
-        sb.appendLine("# Expenses")
+        sb.appendLine("# Exported from Simple Expenses on ${LocalDate.now()}")
         sb.appendLine(
-            "date,category,title,merchant,net_gbp,vat_gbp,gross_gbp,vat_rate_percent,net_pence,vat_pence,gross_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes"
+            "date,category,title,merchant,net_gbp (£),vat_gbp (£),gross_gbp (£),vat_rate_percent,net_pence,vat_pence,gross_pence,status,reimbursable,payment_method,has_receipt,receipt_uri,notes"
         )
 
         expenses.forEach { e ->
@@ -140,9 +140,9 @@ object ExportCsv {
         sb.appendLine()
 
         // --- Mileage section (non-VATable: NET = GROSS, VAT = 0) ---
-        sb.appendLine("# Mileage")
+        sb.appendLine("# Exported from Simple Expenses on ${LocalDate.now()}")
         sb.appendLine(
-            "date,from,to,miles,rate_pence_per_mile,net_gbp,vat_gbp,gross_gbp,net_pence,vat_pence,gross_pence,notes"
+            "date,from,to,miles,rate_pence_per_mile,net_gbp (£),vat_gbp (£),gross_gbp (£),net_pence,vat_pence,gross_pence,notes"
         )
 
         mileage.forEach { m ->

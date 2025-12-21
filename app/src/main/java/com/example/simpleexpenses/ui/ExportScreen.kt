@@ -101,12 +101,11 @@ fun ExportScreen(
     }
 
     fun buildFileName(kind: ExportKind): String {
-        val today = LocalDate.now()
-        val dateStr = today.toString() // YYYY-MM-DD
+        val dateStr = LocalDate.now().toString()
         return when (kind) {
-            ExportKind.COMBINED -> "simple-expenses-all-$dateStr.csv"
-            ExportKind.EXPENSES -> "simple-expenses-expenses-$dateStr.csv"
-            ExportKind.MILEAGE -> "simple-expenses-mileage-$dateStr.csv"
+            ExportKind.COMBINED -> "SimpleExpenses_Combined_$dateStr.csv"
+            ExportKind.EXPENSES -> "SimpleExpenses_Expenses_$dateStr.csv"
+            ExportKind.MILEAGE -> "SimpleExpenses_Mileage_$dateStr.csv"
         }
     }
 
@@ -306,6 +305,17 @@ fun ExportScreen(
                 )
             }
 
+            val nothingToExport =
+                !hasDateError && previewExpenseCount == 0 && previewMileageCount == 0
+
+            if (!hasDateError && useDateRange && nothingToExport) {
+                Text(
+                    "No entries in this period.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -325,6 +335,7 @@ fun ExportScreen(
             )
             Button(
                 onClick = { startExport(ExportKind.COMBINED) },
+                enabled = !hasDateError && (previewExpenseCount > 0 || previewMileageCount > 0),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Export expenses + mileage")
@@ -342,6 +353,7 @@ fun ExportScreen(
             )
             Button(
                 onClick = { startExport(ExportKind.EXPENSES) },
+                enabled = !hasDateError && previewExpenseCount > 0,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Export expenses")
@@ -359,6 +371,7 @@ fun ExportScreen(
             )
             Button(
                 onClick = { startExport(ExportKind.MILEAGE) },
+                enabled = !hasDateError && previewMileageCount > 0,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Export mileage")
