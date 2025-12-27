@@ -9,8 +9,11 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,7 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -58,9 +63,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkManager
@@ -94,21 +102,40 @@ fun CombinedActivityScreen(
     onAddMileage: () -> Unit,
     onOpenExport: () -> Unit,
     onOpenSettings: () -> Unit,
-    onStartDraftFromCamera: (Uri) -> Unit
+    onStartExpenseFromCamera: (Uri) -> Unit,
+    onStartMileageFromCamera: (Uri) -> Unit,
+    quickAddCamera: Boolean = false,
+    quickAddCameraTrigger: Long = 0L
 ) {
     val expenses by expenseVM.expenses.collectAsState(initial = emptyList())
     val mileage by mileageVM.items.collectAsState(initial = emptyList())
 
-    var filter by remember { mutableStateOf(CombinedFilter.ALL) }
+    val filterSaver: Saver<CombinedFilter, String> = Saver(
+        save = { it.name },
+        restore = { CombinedFilter.valueOf(it) }
+    )
+
+    var filter by rememberSaveable(stateSaver = filterSaver) { mutableStateOf(CombinedFilter.ALL) }
+
+    val listState = rememberSaveable(saver = LazyListState.Saver) {
+        LazyListState()
+    }
 
     val items = remember(expenses, mileage, filter) {
         val list: List<CombinedItem> = when (filter) {
             CombinedFilter.ALL ->
-                expenses.map { CombinedItem.ExpenseItem(it) } + mileage.map { CombinedItem.MileageItem(it) }
+                expenses.map { CombinedItem.ExpenseItem(it) } + mileage.map {
+                    CombinedItem.MileageItem(
+                        it
+                    )
+                }
+
             CombinedFilter.EXPENSES ->
                 expenses.map { CombinedItem.ExpenseItem(it) }
+
             CombinedFilter.MILEAGE ->
                 mileage.map { CombinedItem.MileageItem(it) }
+
             CombinedFilter.MISSING_RECEIPTS ->
                 expenses
                     .filter { !it.hasReceipt }
@@ -147,6 +174,14 @@ fun CombinedActivityScreen(
 
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
+    val clearPendingPhoto: (Boolean) -> Unit = { delete ->
+        val uri = pendingCaptureUri
+        pendingCaptureUri = null
+        if (delete && uri != null) {
+            runCatching { context.contentResolver.delete(uri, null, null) }
+        }
+    }
+
     var showAddDialog by remember { mutableStateOf(false) }
 
     var pendingDeleteExpense by remember { mutableStateOf<Expense?>(null) }
@@ -156,16 +191,45 @@ fun CombinedActivityScreen(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
-            pendingCaptureUri?.let { captured ->
-                // Hand this off to nav to open New Expense with the photo
-                onStartDraftFromCamera(captured)
-            }
+            // keep pendingCaptureUri so the dialog buttons can use it
+            showAddDialog = true
         } else {
             // Clean up empty entry if the user cancelled
             pendingCaptureUri?.let { context.contentResolver.delete(it, null, null) }
+            pendingCaptureUri = null
         }
-        pendingCaptureUri = null
     }
+
+    var quickAddConsumed by rememberSaveable { mutableStateOf(false) }
+
+    var lastQuickTrigger by rememberSaveable { mutableStateOf(0L) }
+
+    LaunchedEffect(quickAddCameraTrigger) {
+        if (quickAddCameraTrigger != 0L && quickAddCameraTrigger != lastQuickTrigger) {
+            lastQuickTrigger = quickAddCameraTrigger
+
+            val uri = createImageUri(context)
+            pendingCaptureUri = uri
+            if (uri != null) cameraLauncherForDraft.launch(uri)
+        }
+    }
+
+    // Group the combined items by day, newest day first
+    val groupedByDate = remember(items) {
+        items.groupBy { item ->
+            when (item) {
+                is CombinedItem.ExpenseItem ->
+                    Instant.ofEpochMilli(item.e.timestamp)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+
+                is CombinedItem.MileageItem ->
+                    item.m.date
+            }
+        }.toSortedMap(compareByDescending { it })
+    }
+
+    LaunchedEffect(filter) { listState.scrollToItem(0) }
 
     Scaffold(
         topBar = {
@@ -276,381 +340,260 @@ fun CombinedActivityScreen(
             }
         }
     ) { pad ->
-        Column(
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .padding(pad)
-                .fillMaxSize()
+                .fillMaxSize(),
+            contentPadding = PaddingValues(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Filter row
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                FilterChip(
-                    selected = filter == CombinedFilter.ALL,
-                    onClick = { filter = CombinedFilter.ALL },
-                    label = { Text("All") }
-                )
-                FilterChip(
-                    selected = filter == CombinedFilter.EXPENSES,
-                    onClick = { filter = CombinedFilter.EXPENSES },
-                    label = { Text("Expenses") }
-                )
-                FilterChip(
-                    selected = filter == CombinedFilter.MILEAGE,
-                    onClick = { filter = CombinedFilter.MILEAGE },
-                    label = { Text("Mileage") }
-                )
-                FilterChip(
-                    selected = filter == CombinedFilter.MISSING_RECEIPTS,
-                    onClick = { filter = CombinedFilter.MISSING_RECEIPTS },
-                    label = { Text("Missing receipts") }
-                )
-            }
-
-            Divider()
-
-            // --- SUMMARY CALCULATIONS ---
-
-            val now = remember { java.time.LocalDate.now() }
-            val monthStart = remember { now.withDayOfMonth(1) }
-
-            val expensesThisMonth = expenses.filter { e ->
-                val d = java.time.Instant.ofEpochMilli(e.timestamp)
-                    .atZone(java.time.ZoneId.systemDefault())
-                    .toLocalDate()
-                d >= monthStart
-            }
-
-            val mileageThisMonth = mileage.filter { m ->
-                m.date >= monthStart
-            }
-
-            // Expenses totals
-            val expenseTotalMonth = expensesThisMonth.sumOf { it.amount }
-
-            // Mileage totals (stored in pence)
-            val mileageTotalMonth = mileageThisMonth.sumOf { it.amountPence } / 100.0
-
-            // Combined
-            val combinedTotal = expenseTotalMonth + mileageTotalMonth
-
-            // Missing receipts count
-            val missingReceipts = expenses.count { !it.hasReceipt }
-
-            val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
-
-            val appContext = LocalContext.current.applicationContext
-
-            LaunchedEffect(combinedTotal, expenseTotalMonth, mileageTotalMonth, missingReceipts) {
-                val prefs = appContext.getSharedPreferences("simple_expenses_widget", Context.MODE_PRIVATE)
-
-                prefs.edit()
-                    .putString("widget_combined_total", currency.format(combinedTotal))
-                    .putString("widget_expense_total", currency.format(expenseTotalMonth))
-                    .putString("widget_mileage_total", currency.format(mileageTotalMonth))
-                    .putInt("widget_missing_receipts", missingReceipts)
-                    .apply()
-
-                // Ask the widget to refresh itself
-                SimpleExpensesWidgetProvider.forceUpdate(appContext)
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-
-                // --- Big combined total card ---
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(
-                        Modifier.padding(16.dp)
-                    ) {
-                        Text("This Month", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            currency.format(combinedTotal),
-                            style = MaterialTheme.typography.headlineLarge
-                        )
-                    }
-                }
-
-                // --- Row: Expenses + Mileage ---
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Expenses card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("Expenses", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                currency.format(expenseTotalMonth),
-                                style = MaterialTheme.typography.headlineSmall
+            // Filter row (sticky)
+            stickyHeader {
+                Surface {
+                    Column {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = filter == CombinedFilter.ALL,
+                                onClick = { filter = CombinedFilter.ALL },
+                                label = { Text("All") }
+                            )
+                            FilterChip(
+                                selected = filter == CombinedFilter.EXPENSES,
+                                onClick = { filter = CombinedFilter.EXPENSES },
+                                label = { Text("Expenses") }
+                            )
+                            FilterChip(
+                                selected = filter == CombinedFilter.MILEAGE,
+                                onClick = { filter = CombinedFilter.MILEAGE },
+                                label = { Text("Mileage") }
+                            )
+                            FilterChip(
+                                selected = filter == CombinedFilter.MISSING_RECEIPTS,
+                                onClick = { filter = CombinedFilter.MISSING_RECEIPTS },
+                                label = { Text("Missing receipts") }
                             )
                         }
-                    }
-
-                    // Mileage card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("Mileage", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                currency.format(mileageTotalMonth),
-                                style = MaterialTheme.typography.headlineSmall
-                            )
-                        }
-                    }
-                }
-
-                // --- Missing receipts card ---
-                if (missingReceipts > 0) {
-                    val isActive = filter == CombinedFilter.MISSING_RECEIPTS
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { filter = CombinedFilter.MISSING_RECEIPTS },
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isActive)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(
-                                "Missing receipts",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                "$missingReceipts expense(s)",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            if (!isActive) {
-                                Text(
-                                    "Tap to show only expenses missing receipts",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
+                        Divider()
                     }
                 }
             }
 
-            // Group the combined items by day, newest day first
-            val groupedByDate = remember(items) {
-                items.groupBy { item ->
-                    when (item) {
-                        is CombinedItem.ExpenseItem ->
-                            Instant.ofEpochMilli(item.e.timestamp)
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDate()
+            // --- SUMMARY CALCULATIONS (normal item, not inside stickyHeader) ---
+            item(key = "summary") {
+                val now = remember { java.time.LocalDate.now() }
+                val monthStart = remember { now.withDayOfMonth(1) }
 
-                        is CombinedItem.MileageItem ->
-                            item.m.date
-                    }
-                }.toSortedMap(compareByDescending { it }) // latest date at the top
-            }
+                val expensesThisMonth = expenses.filter { e ->
+                    val d = java.time.Instant.ofEpochMilli(e.timestamp)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate()
+                    d >= monthStart
+                }
 
-            if (items.isEmpty()) {
-                // Empty state when there are no items for the current filter
+                val mileageThisMonth = mileage.filter { m -> m.date >= monthStart }
+
+                val expenseTotalMonth = expensesThisMonth.sumOf { it.amount }
+                val mileageTotalMonth = mileageThisMonth.sumOf { it.amountPence } / 100.0
+                val combinedTotal = expenseTotalMonth + mileageTotalMonth
+                val missingReceipts = expenses.count { !it.hasReceipt }
+
+                val currency = remember { java.text.NumberFormat.getCurrencyInstance() }
+                val appContext = LocalContext.current.applicationContext
+
+                LaunchedEffect(combinedTotal, expenseTotalMonth, mileageTotalMonth, missingReceipts) {
+                    val prefs = appContext.getSharedPreferences("simple_expenses_widget", Context.MODE_PRIVATE)
+
+                    prefs.edit()
+                        .putString("widget_combined_total", currency.format(combinedTotal))
+                        .putString("widget_expense_total", currency.format(expenseTotalMonth))
+                        .putString("widget_mileage_total", currency.format(mileageTotalMonth))
+                        .putInt("widget_missing_receipts", missingReceipts)
+                        .apply()
+
+                    SimpleExpensesWidgetProvider.forceUpdate(appContext)
+                }
+
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = when (filter) {
-                            CombinedFilter.MISSING_RECEIPTS ->
-                                "Nice! No expenses are missing receipts."
-                            CombinedFilter.EXPENSES ->
-                                "No expenses logged yet."
-                            CombinedFilter.MILEAGE ->
-                                "No mileage trips logged yet."
-                            CombinedFilter.ALL ->
-                                "No activity yet."
-                        },
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("This Month", style = MaterialTheme.typography.titleMedium)
+                            Text(currency.format(combinedTotal), style = MaterialTheme.typography.headlineLarge)
+                        }
+                    }
 
-                    Spacer(modifier = Modifier.padding(4.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Expenses", style = MaterialTheme.typography.titleSmall)
+                                Text(currency.format(expenseTotalMonth), style = MaterialTheme.typography.headlineSmall)
+                            }
+                        }
 
-                    Text(
-                        text = when (filter) {
-                            CombinedFilter.MISSING_RECEIPTS ->
-                                "Attach receipts from the editor screen to clear this."
-                            CombinedFilter.EXPENSES ->
-                                "Tap + then Expense to add your first expense."
-                            CombinedFilter.MILEAGE ->
-                                "Tap + then Mileage to add your first trip."
-                            CombinedFilter.ALL ->
-                                "Tap + to start logging."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Mileage", style = MaterialTheme.typography.titleSmall)
+                                Text(currency.format(mileageTotalMonth), style = MaterialTheme.typography.headlineSmall)
+                            }
+                        }
+                    }
+
+                    if (missingReceipts > 0) {
+                        val isActive = filter == CombinedFilter.MISSING_RECEIPTS
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { filter = CombinedFilter.MISSING_RECEIPTS },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isActive)
+                                    MaterialTheme.colorScheme.error
+                                else
+                                    MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Missing receipts", style = MaterialTheme.typography.titleSmall)
+                                Text("$missingReceipts expense(s)", style = MaterialTheme.typography.bodyLarge)
+                                if (!isActive) {
+                                    Text(
+                                        "Tap to show only expenses missing receipts",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item { Divider() }
+
+            if (items.isEmpty()) {
+                item(key = "empty_state") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = when (filter) {
+                                CombinedFilter.MISSING_RECEIPTS -> "Nice! No expenses are missing receipts."
+                                CombinedFilter.EXPENSES -> "No expenses logged yet."
+                                CombinedFilter.MILEAGE -> "No mileage trips logged yet."
+                                CombinedFilter.ALL -> "No activity yet."
+                            },
+                            style = MaterialTheme.typography.titleMedium
+                        )
+
+                        Spacer(modifier = Modifier.padding(4.dp))
+
+                        Text(
+                            text = when (filter) {
+                                CombinedFilter.MISSING_RECEIPTS -> "Attach receipts from the editor screen to clear this."
+                                CombinedFilter.EXPENSES -> "Tap + then Expense to add your first expense."
+                                CombinedFilter.MILEAGE -> "Tap + then Mileage to add your first trip."
+                                CombinedFilter.ALL -> "Tap + to start logging."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    groupedByDate.forEach { (date, dayItems) ->
+                groupedByDate.forEach { (date, dayItems) ->
 
-                        // Calculate total for this date (expenses + mileage)
-                        val dayTotal = dayItems.sumOf { item ->
-                            when (item) {
-                                is CombinedItem.ExpenseItem -> item.e.amount
-                                is CombinedItem.MileageItem -> item.m.amountPence / 100.0
-                            }
+                    val dayTotal = dayItems.sumOf { item ->
+                        when (item) {
+                            is CombinedItem.ExpenseItem -> item.e.amount
+                            is CombinedItem.MileageItem -> item.m.amountPence / 100.0
                         }
+                    }
 
-                        // Date header row with total
-                        item(key = "header_$date") {
-                            ActivityDateHeader(
-                                date = date,
-                                totalAmount = dayTotal
-                            )
-                        }
+                    item(key = "header_$date") {
+                        ActivityDateHeader(date = date, totalAmount = dayTotal)
+                    }
 
-                        // Items for that date
-                        items(
-                            items = dayItems,
-                            key = { dayItem ->
-                                when (dayItem) {
-                                    is CombinedItem.ExpenseItem -> "expense_${dayItem.e.id}"
-                                    is CombinedItem.MileageItem -> "mileage_${dayItem.m.id}"
-                                }
-                            }
-                        ) { dayItem ->
+                    items(
+                        items = dayItems,
+                        key = { dayItem ->
                             when (dayItem) {
-                                is CombinedItem.ExpenseItem -> {
-                                    val e = dayItem.e
-
-                                    val dismissState = rememberSwipeToDismissBoxState(
-                                        confirmValueChange = { value ->
-                                            when (value) {
-                                                SwipeToDismissBoxValue.StartToEnd -> {
-                                                    // Swipe right -> edit
-                                                    onExpenseClick(e.id)
-                                                    false
-                                                }
-                                                SwipeToDismissBoxValue.EndToStart -> {
-                                                    // Swipe left -> delete confirm
-                                                    pendingDeleteExpense = e
-                                                    false
-                                                }
-                                                SwipeToDismissBoxValue.Settled -> false
-                                            }
+                                is CombinedItem.ExpenseItem -> "expense_${dayItem.e.id}"
+                                is CombinedItem.MileageItem -> "mileage_${dayItem.m.id}"
+                            }
+                        }
+                    ) { dayItem ->
+                        when (dayItem) {
+                            is CombinedItem.ExpenseItem -> {
+                                val e = dayItem.e
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    positionalThreshold = { fullWidth -> fullWidth * 0.55f },
+                                    confirmValueChange = { value ->
+                                        when (value) {
+                                            SwipeToDismissBoxValue.StartToEnd -> { onExpenseClick(e.id); false }
+                                            SwipeToDismissBoxValue.EndToStart -> { pendingDeleteExpense = e; false }
+                                            SwipeToDismissBoxValue.Settled -> false
                                         }
-                                    )
-
-                                    SwipeToDismissBox(
-                                        state = dismissState,
-                                        enableDismissFromEndToStart = true,
-                                        enableDismissFromStartToEnd = true,
-                                        backgroundContent = {
-                                            val dir = dismissState.dismissDirection
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 18.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = when (dir) {
-                                                    SwipeToDismissBoxValue.StartToEnd -> Arrangement.Start
-                                                    SwipeToDismissBoxValue.EndToStart -> Arrangement.End
-                                                    else -> Arrangement.SpaceBetween
-                                                }
-                                            ) {
-                                                Text(
-                                                    text = when (dir) {
-                                                        SwipeToDismissBoxValue.StartToEnd -> "Edit"
-                                                        SwipeToDismissBoxValue.EndToStart -> "Delete"
-                                                        else -> ""
-                                                    },
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    ) {
-                                        ExpenseActivityCard(
-                                            e = e,
-                                            onClick = { onExpenseClick(e.id) }
-                                        )
                                     }
+                                )
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromEndToStart = true,
+                                    enableDismissFromStartToEnd = true,
+                                    backgroundContent = {
+                                        SwipeActionBackground(dismissState.dismissDirection)
+                                    }
+                                ) {
+                                    ExpenseActivityCard(e = e, onClick = { onExpenseClick(e.id) })
                                 }
+                            }
 
-                                is CombinedItem.MileageItem -> {
-                                    val m = dayItem.m
-
-                                    val dismissState = rememberSwipeToDismissBoxState(
-                                        confirmValueChange = { value ->
-                                            when (value) {
-                                                SwipeToDismissBoxValue.StartToEnd -> {
-                                                    onMileageClick(m.id)
-                                                    false
-                                                }
-                                                SwipeToDismissBoxValue.EndToStart -> {
-                                                    pendingDeleteMileage = m
-                                                    false
-                                                }
-                                                SwipeToDismissBoxValue.Settled -> false
-                                            }
+                            is CombinedItem.MileageItem -> {
+                                val m = dayItem.m
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    positionalThreshold = { fullWidth -> fullWidth * 0.55f },
+                                    confirmValueChange = { value ->
+                                        when (value) {
+                                            SwipeToDismissBoxValue.StartToEnd -> { onMileageClick(m.id); false }
+                                            SwipeToDismissBoxValue.EndToStart -> { pendingDeleteMileage = m; false }
+                                            SwipeToDismissBoxValue.Settled -> false
                                         }
-                                    )
-
-                                    SwipeToDismissBox(
-                                        state = dismissState,
-                                        enableDismissFromEndToStart = true,
-                                        enableDismissFromStartToEnd = true,
-                                        backgroundContent = {
-                                            val dir = dismissState.dismissDirection
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 18.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = when (dir) {
-                                                    SwipeToDismissBoxValue.StartToEnd -> Arrangement.Start
-                                                    SwipeToDismissBoxValue.EndToStart -> Arrangement.End
-                                                    else -> Arrangement.SpaceBetween
-                                                }
-                                            ) {
-                                                Text(
-                                                    text = when (dir) {
-                                                        SwipeToDismissBoxValue.StartToEnd -> "Edit"
-                                                        SwipeToDismissBoxValue.EndToStart -> "Delete"
-                                                        else -> ""
-                                                    },
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    ) {
-                                        MileageActivityCard(
-                                            m = m,
-                                            onClick = { onMileageClick(m.id) }
-                                        )
                                     }
+                                )
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromEndToStart = true,
+                                    enableDismissFromStartToEnd = true,
+                                    backgroundContent = {
+                                        SwipeActionBackground(dismissState.dismissDirection)
+                                    }
+                                ) {
+                                    MileageActivityCard(m = m, onClick = { onMileageClick(m.id) })
                                 }
                             }
                         }
@@ -658,83 +601,93 @@ fun CombinedActivityScreen(
                 }
             }
         }
-    }
 
-    if (showAddDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text("New claim") },
-            text = { Text("What would you like to add?") },
-            confirmButton = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showAddDialog = false
+                    clearPendingPhoto(true)
+                },
+                title = { Text("New claim") },
+                text = { Text("What would you like to add?") },
+                confirmButton = {
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            showAddDialog = false
-                            onAddExpense()   // use callback instead of nav.navigate("edit")
-                        }
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Expense")
-                    }
-
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            showAddDialog = false
-                            onAddMileage()   // use callback instead of nav.navigate("mileage")
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                showAddDialog = false
+                                pendingCaptureUri?.let {
+                                    onStartExpenseFromCamera(it)
+                                    clearPendingPhoto(false)
+                                } ?: onAddExpense()
+                            }
+                        ) {
+                            Text("Expense")
                         }
-                    ) {
-                        Text("Mileage")
+
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                showAddDialog = false
+                                pendingCaptureUri?.let {
+                                    onStartMileageFromCamera(it)
+                                    clearPendingPhoto(false)
+                                } ?: onAddMileage()
+                            }
+                        ) {
+                            Text("Mileage")
+                        }
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showAddDialog = false
+                        clearPendingPhoto(true)
+                    }) { Text("Cancel") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel")
+            )
+        }
+
+        // Delete confirm: Expense
+        if (pendingDeleteExpense != null) {
+            AlertDialog(
+                onDismissRequest = { pendingDeleteExpense = null },
+                title = { Text("Delete expense") },
+                text = { Text("Are you sure? This cannot be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val toDelete = pendingDeleteExpense!!
+                        pendingDeleteExpense = null
+                        expenseVM.delete(toDelete)
+                    }) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDeleteExpense = null }) { Text("Cancel") }
                 }
-            }
-        )
-    }
+            )
+        }
 
-    // Delete confirm: Expense
-    if (pendingDeleteExpense != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDeleteExpense = null },
-            title = { Text("Delete expense") },
-            text = { Text("Are you sure? This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val toDelete = pendingDeleteExpense!!
-                    pendingDeleteExpense = null
-                    expenseVM.delete(toDelete)
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteExpense = null }) { Text("Cancel") }
-            }
-        )
-    }
-
-    // Delete confirm: Mileage
-    if (pendingDeleteMileage != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDeleteMileage = null },
-            title = { Text("Delete mileage") },
-            text = { Text("Are you sure? This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val toDelete = pendingDeleteMileage!!
-                    pendingDeleteMileage = null
-                    mileageVM.delete(toDelete.id)
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteMileage = null }) { Text("Cancel") }
-            }
-        )
+        // Delete confirm: Mileage
+        if (pendingDeleteMileage != null) {
+            AlertDialog(
+                onDismissRequest = { pendingDeleteMileage = null },
+                title = { Text("Delete mileage") },
+                text = { Text("Are you sure? This cannot be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val toDelete = pendingDeleteMileage!!
+                        pendingDeleteMileage = null
+                        mileageVM.delete(toDelete.id)
+                    }) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDeleteMileage = null }) { Text("Cancel") }
+                }
+            )
+        }
     }
 }
 
@@ -916,4 +869,41 @@ private fun createImageUri(context: Context): Uri? {
         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
         values
     )
+}
+
+@Composable
+private fun SwipeActionBackground(direction: SwipeToDismissBoxValue?) {
+    val text = when (direction) {
+        SwipeToDismissBoxValue.StartToEnd -> "Edit"
+        SwipeToDismissBoxValue.EndToStart -> "Delete"
+        else -> ""
+    }
+
+    val bgColor = when (direction) {
+        SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
+        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+
+    val align = when (direction) {
+        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+        SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+        else -> Alignment.Center
+    }
+
+    val textColor = when (direction) {
+        SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onPrimary
+        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.onError
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .padding(horizontal = 16.dp),
+        contentAlignment = align
+    ) {
+        Text(text = text, style = MaterialTheme.typography.titleMedium, color = textColor)
+    }
 }

@@ -37,6 +37,8 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!--
+        COMMENT OUT WIDGET
         <receiver
             android:name=".widget.SimpleExpensesWidgetProvider"
             android:exported="true">
@@ -48,6 +50,7 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/simple_expenses_widget_info" />
         </receiver>
+        -->
 
         <service
             android:name=".quick.QuickAddExpenseTileService"

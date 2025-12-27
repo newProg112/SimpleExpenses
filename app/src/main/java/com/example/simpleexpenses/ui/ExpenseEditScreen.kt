@@ -180,7 +180,7 @@ fun ExpenseEditScreen(
     }
 
     // list of attachment URIs
-    var attachmentUris by rememberSaveable(expenseId) {
+    var attachmentUris by rememberSaveable(expenseId, initialReceiptUri) {
         mutableStateOf<List<String>>(emptyList())
     }
 

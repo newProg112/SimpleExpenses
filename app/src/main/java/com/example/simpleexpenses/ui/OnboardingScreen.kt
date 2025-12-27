@@ -54,14 +54,15 @@ fun OnboardingScreen(
             )
 
             Text(
-                text = "Simple Expenses helps you capture receipts, mileage and exports you can actually use at work or for your own records.",
-                style = MaterialTheme.typography.bodyMedium
+                text = "Simple Expenses helps you capture receipts and mileage, and create exports you can actually use at work or for your own records.",
+                        style = MaterialTheme.typography.bodyMedium
             )
 
-            OnboardingCard(
-                title = "Quick add from your home screen",
-                body = "Use the home screen widget to add a new expense with the camera, or log mileage with the steering wheel icon. Your totals and missing receipts show on the widget too."
-            )
+            // TODO(widget): Re-enable when widget is back in MVP
+            // OnboardingCard(
+            //     title = "Quick add from your home screen",
+            //     body = "Use the home screen widget to add a new expense with the camera, or log mileage with the steering wheel icon. Your totals and missing receipts show on the widget too."
+            // )
 
             OnboardingCard(
                 title = "Activity view",
@@ -80,8 +81,14 @@ fun OnboardingScreen(
 
             OnboardingCard(
                 title = "You stay in control",
-                body = "Change theme, mileage rate and reminders in Settings whenever you like. You can always come back here from the app menu in a future version."
+                body = "Change mileage rate and reminders in Settings whenever you like. You can always come back here from the app menu in a future version."
             )
+
+            // TODO(theme): Reword this card when theme switching exists
+            // OnboardingCard(
+            //     title = "You stay in control",
+            //     body = "Change theme, mileage rate and reminders in Settings whenever you like. You can always come back here from the app menu in a future version."
+            // )
 
             Spacer(modifier = Modifier.weight(1f, fill = true))
 

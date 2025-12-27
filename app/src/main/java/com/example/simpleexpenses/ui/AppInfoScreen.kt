@@ -96,11 +96,13 @@ fun AppInfoScreen(
                 style = MaterialTheme.typography.bodySmall
             )
 
+            /*
             Text(
                 text = "Made by Adam Elvin.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+             */
         }
     }
 }

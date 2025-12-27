@@ -28,14 +28,33 @@ import com.example.simpleexpenses.ui.ExpenseEditScreen
 import com.example.simpleexpenses.ui.ExpenseListScreen
 import com.example.simpleexpenses.ui.ExpenseVMFactory
 import com.example.simpleexpenses.ui.ExportScreen
+import com.example.simpleexpenses.ui.MileageEditScreen
 import com.example.simpleexpenses.ui.MileageRoute
 import com.example.simpleexpenses.ui.OnboardingScreen
 import com.example.simpleexpenses.ui.SimpleExpensesTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val quickAddCameraTrigger = mutableStateOf(0L)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        if (intent.getBooleanExtra("open_add_camera", false)) {
+            quickAddCameraTrigger.value = System.currentTimeMillis()
+            intent.removeExtra("open_add_camera")
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (intent.getBooleanExtra("open_add_camera", false)) {
+            quickAddCameraTrigger.value = System.currentTimeMillis()
+            intent.removeExtra("open_add_camera")
+        }
 
         val app = application as LocalApp
 
@@ -57,9 +76,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            val openAddExpenseCamera = remember {
-                intent?.getBooleanExtra("open_add_expense_camera", false) == true
-            }
+            val quickTrigger = quickAddCameraTrigger.value
 
             SimpleExpensesTheme(mode = themeMode) {
                 Surface(color = MaterialTheme.colorScheme.background) {
@@ -79,7 +96,18 @@ class MainActivity : ComponentActivity() {
                         intent?.getBooleanExtra("open_add_mileage", false) == true
                     }
 
+                    val openAddCamera = remember {
+                        intent?.getBooleanExtra("open_add_camera", false) == true
+                    }
+
+                    LaunchedEffect(Unit) {
+                        if (openAddCamera) {
+                            intent?.removeExtra("open_add_camera")
+                        }
+                    }
+
                     val startRoute = when {
+                        openAddCamera -> "activity"
                         openAddExpense -> "edit"        // widget quick-add expense
                         openAddMileage -> "mileage"     // widget quick-add mileage
                         !hasSeenOnboarding -> "onboarding"
@@ -121,9 +149,15 @@ class MainActivity : ComponentActivity() {
                                 onAddMileage = { nav.navigate("mileage") },
                                 onOpenExport = { nav.navigate("export") },
                                 onOpenSettings = { nav.navigate("settings") },
-                                onStartDraftFromCamera = { uri ->
+                                quickAddCamera = openAddCamera,
+                                quickAddCameraTrigger = quickTrigger,
+                                        onStartExpenseFromCamera = { uri ->
                                     val encoded = Uri.encode(uri.toString())
                                     nav.navigate("edit?receiptUri=$encoded")
+                                },
+                                onStartMileageFromCamera = { uri ->
+                                    val encoded = Uri.encode(uri.toString())
+                                    nav.navigate("mileage?receiptUri=$encoded")
                                 }
                             )
                         }
@@ -162,12 +196,16 @@ class MainActivity : ComponentActivity() {
                                 viewModel = vm,
                                 expenseId = if (id >= 0) id else null,
                                 initialReceiptUri = receiptUriArg,
-                                startWithCamera = (
-                                        (openAddExpenseCamera || openAddExpense) &&
-                                                id < 0 &&
-                                                receiptUriArg == null
-                                        ),
-                                onDone = { nav.popBackStack() }
+                                startWithCamera = (openAddExpense && id < 0 && receiptUriArg == null),
+                                onDone = {
+                                    val popped = nav.popBackStack()
+                                    if (!popped) {
+                                        nav.navigate("activity") {
+                                            popUpTo(0) { inclusive = true }
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                }
                             )
                         }
 
@@ -216,6 +254,38 @@ class MainActivity : ComponentActivity() {
                                 vm = mvm,
                                 editId = editId,
                                 onDone = { nav.popBackStack() }
+                            )
+                        }
+
+                        composable(
+                            route = "mileage?receiptUri={receiptUri}",
+                            arguments = listOf(
+                                navArgument("receiptUri") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                    nullable = true
+                                }
+                            )
+                        ) { backStack ->
+                            val context = LocalContext.current.applicationContext
+                            val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
+                            val mvm = viewModel<com.example.simpleexpenses.ui.MileageViewModel>(
+                                factory = com.example.simpleexpenses.ui.MileageVMFactory(context, db.mileageDao())
+                            )
+
+                            val receiptUriArg = backStack.arguments
+                                ?.getString("receiptUri")
+                                ?.takeUnless { it.isNullOrBlank() }
+
+                            // Seed the VM with the attachment (new claim)
+                            LaunchedEffect(receiptUriArg) {
+                                receiptUriArg?.let { mvm.onReceiptSelected(it) }
+                            }
+
+                            MileageEditScreen(
+                                vm = mvm,
+                                onDone = { nav.popBackStack() },
+                                editId = null
                             )
                         }
 
