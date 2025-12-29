@@ -377,9 +377,18 @@ fun ExpenseEditScreen(
                 reimbursable = e.reimbursable
                 paymentMethod = e.paymentMethod
 
+                /* TODO(PRO): Multi attachments (photos + PDFs)
                 // NEW: load attachments list and keep single receiptLocalUri in sync
                 attachmentUris = when {
                     e.attachmentUris.isNotEmpty() -> e.attachmentUris
+                    !e.receiptUri.isNullOrBlank() -> listOf(e.receiptUri)
+                    else -> emptyList()
+                }
+                receiptLocalUri = attachmentUris.firstOrNull()
+                 */
+
+                attachmentUris = when {
+                    e.attachmentUris.isNotEmpty() -> listOf(e.attachmentUris.first())
                     !e.receiptUri.isNullOrBlank() -> listOf(e.receiptUri)
                     else -> emptyList()
                 }
@@ -481,6 +490,7 @@ fun ExpenseEditScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            /* TODO(PRO): Multi attachments (photos + PDFs)
             MultiAttachmentSection(
                 expenseId = expenseId,
                 attachments = attachmentUris,
@@ -512,6 +522,24 @@ fun ExpenseEditScreen(
                     mutable.add(to, item)
                     attachmentUris = mutable
                     receiptLocalUri = mutable.firstOrNull()
+                },
+                autoLaunchCamera = startWithCamera
+            )
+             */
+
+            // MVP: Single attachment only (photo or PDF)
+            SingleAttachmentSection(
+                uriString = receiptLocalUri,
+                onPick = { uri ->
+                    val u = uri.toString()
+                    receiptLocalUri = u
+                    attachmentUris = listOf(u) // keep data model in sync
+                    expenseId?.let { viewModel.attachReceipt(it, uri) }
+                },
+                onRemove = {
+                    receiptLocalUri = null
+                    attachmentUris = emptyList()
+                    expenseId?.let { viewModel.removeReceipt(it) }
                 },
                 autoLaunchCamera = startWithCamera
             )
@@ -1032,6 +1060,124 @@ fun StatusPicker(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SingleAttachmentSection(
+    uriString: String?,
+    onPick: (Uri) -> Unit,
+    onRemove: () -> Unit,
+    autoLaunchCamera: Boolean = false
+) {
+    val context = LocalContext.current
+    var showPreviewUri by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            onPick(uri)
+        }
+    }
+
+    var pendingUri by remember { mutableStateOf<Uri?>(null) }
+    val camera = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) pendingUri?.let(onPick)
+        else pendingUri?.let { context.contentResolver.delete(it, null, null) }
+        pendingUri = null
+    }
+
+    LaunchedEffect(autoLaunchCamera) {
+        if (autoLaunchCamera && uriString.isNullOrBlank()) {
+            val uri = createImageUri(context)
+            pendingUri = uri
+            if (uri != null) camera.launch(uri)
+        }
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Attachment", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = {
+                picker.launch(arrayOf("image/*", "application/pdf"))
+            }) { Text(if (uriString == null) "Add" else "Replace") }
+
+            TextButton(onClick = {
+                val uri = createImageUri(context)
+                pendingUri = uri
+                if (uri != null) camera.launch(uri)
+            }) {
+                Text("Take photo")
+            }
+
+            if (uriString != null) {
+                TextButton(onClick = onRemove) { Text("Remove") }
+            }
+        }
+
+        if (uriString != null) {
+            val uri = Uri.parse(uriString)
+            val mime = context.contentResolver.getType(uri)
+            val isPdf = mime == "application/pdf" || uriString.lowercase().endsWith(".pdf")
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clickable {
+                        if (isPdf) {
+                            val i = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/pdf")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(i) }
+                        } else {
+                            showPreviewUri = uriString
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp)
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    if (isPdf) PdfFirstPageThumb(uri)
+                    else Image(
+                        painter = rememberAsyncImagePainter(uri),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+
+    if (showPreviewUri != null) {
+        val uri = Uri.parse(showPreviewUri!!)
+        AlertDialog(
+            onDismissRequest = { showPreviewUri = null },
+            confirmButton = {
+                TextButton(onClick = { showPreviewUri = null }) { Text("Close") }
+            },
+            text = {
+                Image(
+                    painter = rememberAsyncImagePainter(uri),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(420.dp)
+                )
+            }
+        )
     }
 }
 
