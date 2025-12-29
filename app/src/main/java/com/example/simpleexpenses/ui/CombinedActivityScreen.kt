@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -29,8 +30,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.AlertDialog
@@ -43,8 +46,10 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -103,7 +108,6 @@ fun CombinedActivityScreen(
     onOpenSettings: () -> Unit,
     onStartExpenseFromCamera: (Uri) -> Unit,
     onStartMileageFromCamera: (Uri) -> Unit,
-    quickAddCamera: Boolean = false,
     quickAddCameraTrigger: Long = 0L
 ) {
     val expenses by expenseVM.expenses.collectAsState(initial = emptyList())
@@ -379,7 +383,7 @@ fun CombinedActivityScreen(
                                 label = { Text("Missing receipts") }
                             )
                         }
-                        Divider()
+                        HorizontalDivider()
                     }
                 }
             }
@@ -602,41 +606,52 @@ fun CombinedActivityScreen(
         }
 
         if (showAddDialog) {
+            val hasPhoto = pendingCaptureUri != null
+
             AlertDialog(
                 onDismissRequest = {
                     showAddDialog = false
                     clearPendingPhoto(true)
                 },
-                title = { Text("New claim") },
-                text = { Text("What would you like to add?") },
+                title = { Text(if (hasPhoto) "Use this photo for…" else "New claim") },
+                text = {
+                    Text(
+                        if (hasPhoto) "Choose where to attach the photo."
+                        else "What would you like to add?"
+                    )
+                },
                 confirmButton = {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
+                        FilledTonalButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 showAddDialog = false
                                 pendingCaptureUri?.let {
                                     onStartExpenseFromCamera(it)
-                                    clearPendingPhoto(false)
+                                    pendingCaptureUri = null
                                 } ?: onAddExpense()
                             }
                         ) {
+                            Icon(Icons.Filled.ReceiptLong, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
                             Text("Expense")
                         }
 
-                        Button(
+                        FilledTonalButton(
                             modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 showAddDialog = false
                                 pendingCaptureUri?.let {
                                     onStartMileageFromCamera(it)
-                                    clearPendingPhoto(false)
+                                    pendingCaptureUri = null
                                 } ?: onAddMileage()
                             }
                         ) {
+                            Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
                             Text("Mileage")
                         }
                     }

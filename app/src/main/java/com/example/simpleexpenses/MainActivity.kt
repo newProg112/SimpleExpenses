@@ -96,18 +96,8 @@ class MainActivity : ComponentActivity() {
                         intent?.getBooleanExtra("open_add_mileage", false) == true
                     }
 
-                    val openAddCamera = remember {
-                        intent?.getBooleanExtra("open_add_camera", false) == true
-                    }
-
-                    LaunchedEffect(Unit) {
-                        if (openAddCamera) {
-                            intent?.removeExtra("open_add_camera")
-                        }
-                    }
-
                     val startRoute = when {
-                        openAddCamera -> "activity"
+                        quickTrigger != 0L -> "activity"
                         openAddExpense -> "edit"        // widget quick-add expense
                         openAddMileage -> "mileage"     // widget quick-add mileage
                         !hasSeenOnboarding -> "onboarding"
@@ -149,9 +139,8 @@ class MainActivity : ComponentActivity() {
                                 onAddMileage = { nav.navigate("mileage") },
                                 onOpenExport = { nav.navigate("export") },
                                 onOpenSettings = { nav.navigate("settings") },
-                                quickAddCamera = openAddCamera,
                                 quickAddCameraTrigger = quickTrigger,
-                                        onStartExpenseFromCamera = { uri ->
+                                onStartExpenseFromCamera = { uri ->
                                     val encoded = Uri.encode(uri.toString())
                                     nav.navigate("edit?receiptUri=$encoded")
                                 },
