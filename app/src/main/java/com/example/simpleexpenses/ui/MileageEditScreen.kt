@@ -3,11 +3,10 @@ package com.example.simpleexpenses.ui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.health.connect.datatypes.ExerciseRoute
-import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -58,14 +57,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
-import com.example.simpleexpenses.data.MileageClaim
-import com.example.simpleexpenses.data.MileageEntry
 import com.example.simpleexpenses.data.VehicleType
-import com.example.simpleexpenses.network.CrowFliesRoutesRepository
-import com.example.simpleexpenses.network.LatLng
 import kotlinx.coroutines.launch
 import java.io.File
-import java.lang.ProcessBuilder.Redirect.to
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -84,6 +78,27 @@ fun MileageEditScreen(
     val ui by vm.ui.collectAsState()
 
     val context = LocalContext.current
+
+    val onDoneClean: () -> Unit = {
+        if (editId == null) {
+            ui.receiptUri?.let { uriStr ->
+                val uri = runCatching { Uri.parse(uriStr) }.getOrNull()
+                if (uri != null) {
+                    runCatching {
+                        when (uri.scheme) {
+                            "file" -> File(uri.path!!).delete()
+                            else -> context.contentResolver.delete(uri, null, null)
+                        }
+                    }
+                }
+            }
+        }
+        onDone()
+    }
+
+    BackHandler {
+        onDoneClean()
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -241,7 +256,7 @@ fun MileageEditScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = onDone,
+                        onClick = onDoneClean,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("Cancel")

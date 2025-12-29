@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -177,6 +178,26 @@ fun ExpenseEditScreen(
 
     var receiptLocalUri by rememberSaveable(expenseId, initialReceiptUri) {
         mutableStateOf<String?>(initialReceiptUri)
+    }
+
+    fun deleteDraftAttachmentIfNeeded() {
+        // Only clean up for *new* expense drafts
+        if (expenseId != null) return
+
+        val uriStr = receiptLocalUri ?: return
+        val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return
+
+        // Best-effort delete; if it was a picked document this may fail (that’s fine)
+        runCatching { context.contentResolver.delete(uri, null, null) }
+    }
+
+    val onDoneClean: () -> Unit = {
+        deleteDraftAttachmentIfNeeded()
+        onDone()
+    }
+
+    BackHandler {
+        onDoneClean()
     }
 
     // list of attachment URIs
@@ -1141,6 +1162,9 @@ private fun SingleAttachmentSection(
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             runCatching { context.startActivity(i) }
+                                .onFailure {
+                                    Toast.makeText(context, "No app found to open PDF", Toast.LENGTH_SHORT).show()
+                                }
                         } else {
                             showPreviewUri = uriString
                         }
@@ -1284,6 +1308,9 @@ fun MultiAttachmentSection(
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
                                 runCatching { context.startActivity(i) }
+                                    .onFailure {
+                                        Toast.makeText(context, "No app found to open PDF", Toast.LENGTH_SHORT).show()
+                                    }
                             } else {
                                 showPreviewUri = uriString
                             }
@@ -1330,6 +1357,9 @@ fun MultiAttachmentSection(
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         runCatching { context.startActivity(i) }
+                                            .onFailure {
+                                                Toast.makeText(context, "No app found to open PDF", Toast.LENGTH_SHORT).show()
+                                            }
                                     } else {
                                         showPreviewUri = uriString
                                     }
