@@ -141,7 +141,7 @@ fun SettingsScreen(
                     )
                     Text(
                         if (reminderEnabled) "Reminder time: $timeLabel"
-                        else "Turn on to get a daily nudge to log expenses and mileage.",
+                        else "Turn on to get a daily reminder to log expenses and mileage.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
@@ -217,7 +217,7 @@ fun SettingsScreen(
                         }
                     },
                     enabled = reminderEnabled
-                ) { Text("Save time") }
+                ) { Text("Apply") }
             }
 
             Divider()
