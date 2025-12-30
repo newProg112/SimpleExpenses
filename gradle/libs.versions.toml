@@ -13,6 +13,18 @@ ksp = "2.0.21-1.0.25"
 coroutines = "1.8.1"
 navigation = "2.7.7"
 coil = "2.7.0"
+datastore = "1.1.1"
+work = "2.9.1"
+foundation = "1.9.3"
+runtime = "1.9.4"
+material3 = "1.4.0"
+foundationVersion = "1.9.5"
+visionCommon = "17.3.0"
+playServicesMlkitTextRecognitionCommon = "19.1.0"
+foundationLayout = "1.9.5"
+benchmarkTraceprocessor = "1.4.1"
+androidxFoundation = "1.10.0"
+coreI18n = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +43,10 @@ androidx-compose-material-iconsExtended = { module = "androidx.compose.material:
 androidx-compose-material-pullrefresh = { module = "androidx.compose.material:pull-refresh" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx     = { module = "androidx.room:room-ktx",     version.ref = "room" }
 room-compiler= { module = "androidx.room:room-compiler",version.ref = "room" }
@@ -45,6 +61,16 @@ androidx-lifecycle-runtime-ktx     = { module = "androidx.lifecycle:lifecycle-ru
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose",  version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-ktx   = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx",   version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
+androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+androidx-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundationVersion" }
+vision-common = { group = "com.google.mlkit", name = "vision-common", version.ref = "visionCommon" }
+play-services-mlkit-text-recognition-common = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition-common", version.ref = "playServicesMlkitTextRecognitionCommon" }
+androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
+androidx-benchmark-traceprocessor = { group = "androidx.benchmark", name = "benchmark-traceprocessor", version.ref = "benchmarkTraceprocessor" }
+foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "androidxFoundation" }
+androidx-core-i18n = { group = "androidx.core", name = "core-i18n", version.ref = "coreI18n" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

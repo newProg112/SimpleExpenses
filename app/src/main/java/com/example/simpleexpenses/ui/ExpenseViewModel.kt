@@ -111,13 +111,33 @@ class ExpenseViewModel(
 
     fun attachReceipt(expenseId: Long, uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
-            expenseDao.updateReceiptUri(expenseId, uri.toString())
+            val existing = expenseDao.getById(expenseId) ?: return@launch
+            val uriString = uri.toString()
+
+            // For now we behave like "single attachment" → replace list with just this one
+            val newList = listOf(uriString)
+
+            val updated = existing.copy(
+                attachmentUris = newList,
+                hasReceipt = newList.isNotEmpty(),
+                receiptUri = newList.firstOrNull()
+            )
+
+            expenseDao.update(updated)
         }
     }
 
     fun removeReceipt(expenseId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            expenseDao.clearReceiptUri(expenseId)
+            val existing = expenseDao.getById(expenseId) ?: return@launch
+
+            val updated = existing.copy(
+                attachmentUris = emptyList(),
+                hasReceipt = false,
+                receiptUri = null
+            )
+
+            expenseDao.update(updated)
         }
     }
 

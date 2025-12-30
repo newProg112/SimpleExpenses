@@ -94,4 +94,7 @@ interface ExpenseDao {
 
     @Query("UPDATE expenses SET receiptUri = NULL, hasReceipt = 0 WHERE id = :id")
     suspend fun clearReceiptUri(id: Long)
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE category = :categoryName")
+    suspend fun countByCategory(categoryName: String): Int
 }

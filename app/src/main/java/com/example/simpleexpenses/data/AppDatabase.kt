@@ -9,13 +9,18 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Expense::class],
-    version = 2,            // ⬅️ bump if you were on 1
+    entities = [
+        Expense::class,
+        MileageEntry::class,
+        ExpenseCategory::class
+    ],
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
+    abstract fun mileageDao(): MileageDao
 
     companion object {
         // 1 → 2 adds: category (TEXT NOT NULL DEFAULT 'General'),
@@ -47,4 +52,6 @@ abstract class AppDatabase : RoomDatabase() {
                     .also { INSTANCE = it }
             }
     }
+
+    abstract fun expenseCategoryDao(): ExpenseCategoryDao
 }
