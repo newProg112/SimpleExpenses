@@ -99,9 +99,14 @@ class MainActivity : ComponentActivity() {
                     val startRoute = when {
                         quickTrigger != 0L -> "activity"
                         openAddExpense -> "edit"        // widget quick-add expense
-                        openAddMileage -> "mileage"     // widget quick-add mileage
+                        openAddMileage -> "mileage?receiptUri="     // widget quick-add mileage
                         !hasSeenOnboarding -> "onboarding"
                         else -> "activity"
+                    }
+
+                    fun navToNewMileage(receiptUri: String? = null) {
+                        val encoded = Uri.encode(receiptUri ?: "")
+                        nav.navigate("mileage?receiptUri=$encoded")
                     }
 
                     NavHost(navController = nav, startDestination = startRoute) {
@@ -136,7 +141,7 @@ class MainActivity : ComponentActivity() {
                                 onExpenseClick = { id -> nav.navigate("edit?id=$id") },
                                 onMileageClick = { id -> nav.navigate("mileage_edit?id=$id") },
                                 onAddExpense = { nav.navigate("edit") },
-                                onAddMileage = { nav.navigate("mileage") },
+                                onAddMileage = { navToNewMileage(null) },
                                 onOpenExport = { nav.navigate("export") },
                                 onOpenSettings = { nav.navigate("settings") },
                                 quickAddCameraTrigger = quickTrigger,
@@ -145,8 +150,7 @@ class MainActivity : ComponentActivity() {
                                     nav.navigate("edit?receiptUri=$encoded")
                                 },
                                 onStartMileageFromCamera = { uri ->
-                                    val encoded = Uri.encode(uri.toString())
-                                    nav.navigate("mileage?receiptUri=$encoded")
+                                    navToNewMileage(uri.toString())
                                 }
                             )
                         }
@@ -205,11 +209,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // mileage: open editor
-                        composable("mileage") {
-                            MileageRoute(onDone = { nav.popBackStack() })
-                        }
-
                         composable("mileage_list") {
                             val context = LocalContext.current.applicationContext
                             val db = remember { com.example.simpleexpenses.data.AppDatabase.get(context) }
@@ -218,7 +217,7 @@ class MainActivity : ComponentActivity() {
                             )
                             com.example.simpleexpenses.ui.MileageListScreen(
                                 vm = mvm,
-                                onAddClick = { nav.navigate("mileage") },
+                                onAddClick = { navToNewMileage(null) },
                                 onEdit = { id -> nav.navigate("mileage_edit?id=$id") }
                             )
                         }
@@ -265,9 +264,11 @@ class MainActivity : ComponentActivity() {
                             val receiptUriArg = backStack.arguments
                                 ?.getString("receiptUri")
                                 ?.takeUnless { it.isNullOrBlank() }
+                                ?.let { Uri.decode(it) }
 
                             // Seed the VM with the attachment (new claim)
                             LaunchedEffect(receiptUriArg) {
+                                mvm.beginEdit(null)
                                 receiptUriArg?.let { mvm.onReceiptSelected(it) }
                             }
 

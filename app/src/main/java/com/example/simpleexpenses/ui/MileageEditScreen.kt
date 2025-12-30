@@ -610,5 +610,9 @@ private fun openFile(context: Context, uri: Uri) {
         setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(intent)
+    try {
+        context.startActivity(Intent.createChooser(intent, "Open with"))
+    } catch (e: android.content.ActivityNotFoundException) {
+        Toast.makeText(context, "No app found to open this file", Toast.LENGTH_SHORT).show()
+    }
 }
