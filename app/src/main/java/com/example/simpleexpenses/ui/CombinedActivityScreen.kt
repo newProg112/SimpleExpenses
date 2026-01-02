@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,7 +40,6 @@ import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -202,8 +202,6 @@ fun CombinedActivityScreen(
             pendingCaptureUri = null
         }
     }
-
-    var quickAddConsumed by rememberSaveable { mutableStateOf(false) }
 
     var lastQuickTrigger by rememberSaveable { mutableStateOf(0L) }
 
@@ -497,36 +495,22 @@ fun CombinedActivityScreen(
 
             if (items.isEmpty()) {
                 item(key = "empty_state") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = when (filter) {
-                                CombinedFilter.MISSING_RECEIPTS -> "Nice! No expenses are missing receipts."
-                                CombinedFilter.EXPENSES -> "No expenses logged yet."
-                                CombinedFilter.MILEAGE -> "No mileage trips logged yet."
-                                CombinedFilter.ALL -> "No activity yet."
-                            },
-                            style = MaterialTheme.typography.titleMedium
-                        )
-
-                        Spacer(modifier = Modifier.padding(4.dp))
-
-                        Text(
-                            text = when (filter) {
-                                CombinedFilter.MISSING_RECEIPTS -> "Attach receipts from the editor screen to clear this."
-                                CombinedFilter.EXPENSES -> "Tap + then Expense to add your first expense."
-                                CombinedFilter.MILEAGE -> "Tap + then Mileage to add your first trip."
-                                CombinedFilter.ALL -> "Tap + to start logging."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    EmptyStateCard(
+                        title = when (filter) {
+                            CombinedFilter.MISSING_RECEIPTS -> "All receipts done"
+                            CombinedFilter.EXPENSES -> "No expenses yet"
+                            CombinedFilter.MILEAGE -> "No mileage yet"
+                            CombinedFilter.ALL -> "No activity yet"
+                        },
+                        body = when (filter) {
+                            CombinedFilter.MISSING_RECEIPTS -> "Nice — nothing is missing."
+                            CombinedFilter.EXPENSES -> "Tap + then Expense to add your first expense."
+                            CombinedFilter.MILEAGE -> "Tap + then Mileage to add your first trip."
+                            CombinedFilter.ALL -> "Tap + to start logging."
+                        },
+                        onAddExpense = { showAddDialog = true },
+                        onAddMileage = { showAddDialog = true }
+                    )
                 }
             } else {
                 groupedByDate.forEach { (date, dayItems) ->
@@ -631,7 +615,7 @@ fun CombinedActivityScreen(
                                 showAddDialog = false
                                 pendingCaptureUri?.let {
                                     onStartExpenseFromCamera(it)
-                                    pendingCaptureUri = null
+                                    clearPendingPhoto(false)
                                 } ?: onAddExpense()
                             }
                         ) {
@@ -646,7 +630,7 @@ fun CombinedActivityScreen(
                                 showAddDialog = false
                                 pendingCaptureUri?.let {
                                     onStartMileageFromCamera(it)
-                                    pendingCaptureUri = null
+                                    clearPendingPhoto(false)
                                 } ?: onAddMileage()
                             }
                         ) {
@@ -919,5 +903,48 @@ private fun SwipeActionBackground(direction: SwipeToDismissBoxValue?) {
         contentAlignment = align
     ) {
         Text(text = text, style = MaterialTheme.typography.titleMedium, color = textColor)
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    title: String,
+    body: String,
+    onAddExpense: () -> Unit,
+    onAddMileage: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            Text(body, style = MaterialTheme.typography.bodyMedium)
+
+            Spacer(Modifier.height(14.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(
+                    onClick = onAddExpense,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Filled.ReceiptLong, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Expense")
+                }
+
+                FilledTonalButton(
+                    onClick = onAddMileage,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Mileage")
+                }
+            }
+        }
     }
 }

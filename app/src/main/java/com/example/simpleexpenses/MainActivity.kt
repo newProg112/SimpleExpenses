@@ -268,7 +268,6 @@ class MainActivity : ComponentActivity() {
 
                             // Seed the VM with the attachment (new claim)
                             LaunchedEffect(receiptUriArg) {
-                                mvm.beginEdit(null)
                                 receiptUriArg?.let { mvm.onReceiptSelected(it) }
                             }
 

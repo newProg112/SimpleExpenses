@@ -210,27 +210,11 @@ fun MileageEditScreen(
 
     val poundsString = currency.format(estimatedPence / 100.0)
 
-    if (editId != null) {
-        val existing by vm.entry(editId).collectAsState(initial = null)
-        LaunchedEffect(existing?.id) {
-            existing?.let { e ->
-                // Set date into VM (needs onDateChanged in the VM — we added this earlier)
-                val epoch = e.date.atStartOfDay(java.time.ZoneId.systemDefault())
-                    .toInstant().toEpochMilli()
-                vm.onDateChanged(epoch)
-
-                // Translate distanceMeters -> miles for HMRC calc, rounded to 1 decimal
-                val miles = (e.distanceMeters / 1609.344 * 10.0).roundToInt() / 10.0
-                vm.onMilesChanged(miles)
-
-                // Notes
-                vm.onNoteChanged(e.notes.orEmpty())
-
-                // Keep From/To in the local screen fields for context (will be appended to note on save)
-                from = e.fromLabel
-                to = e.toLabel
-                note = e.notes.orEmpty()
-            }
+    LaunchedEffect(editId) {
+        if (editId == null) {
+            vm.beginEdit(null)
+        } else {
+            vm.beginEdit(editId)
         }
     }
 

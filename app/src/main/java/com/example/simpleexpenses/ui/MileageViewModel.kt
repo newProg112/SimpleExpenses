@@ -111,6 +111,7 @@ class MileageViewModel(
     @RequiresApi(Build.VERSION_CODES.O)
     fun beginEdit(id: Long?) = viewModelScope.launch {
         editingId = id
+
         if (id != null) {
             dao.observeById(id).firstOrNull()?.let { e ->
                 val next = _ui.value.copy(
@@ -125,6 +126,18 @@ class MileageViewModel(
                 )
                 recompute(next)
             }
+        } else {
+            // NEW CLAIM: reset draft state
+            val next = MileageEditState(
+                dateEpochMillis = System.currentTimeMillis(),
+                miles = 0.0,
+                note = "",
+                vehicle = VehicleType.CAR,
+                passengers = 0,
+                receiptUri = null,
+                hasReceipt = false
+            )
+            recompute(next)
         }
     }
 
